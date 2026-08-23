@@ -107,7 +107,7 @@ export function OCRResults({ images, results }: OCRResultsProps) {
                     </span>
                   </div>
 
-                  <pre className="text-xs font-mono text-ink whitespace-pre-wrap break-words">
+                  <pre className="text-xs font-mono text-ink whitespace-pre-wrap wrap-break-word">
                     {result.text.length > 0
                       ? result.text
                       : "(no text detected)"}
