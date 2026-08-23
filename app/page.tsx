@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { ImageUploader, UploadedImage } from "@/components/scanner/ImageUploader";
 import { OCRResults, OcrResultState, OcrStatus } from "@/components/scanner/OCRResults";
 import { DeclarationPanel } from "@/components/scanner/DeclarationPanel";
+import { CompliancePanel } from "@/components/scanner/CompliancePanel";
 import { recognizeImage, terminateOcrWorker } from "@/lib/ocr";
 import { extractDeclaration } from "@/lib/extraction/deterministicExtractor";
 import type { OcrChunk, ProductDeclaration } from "@/lib/extraction/schema";
+import { evaluateCompliance } from "@/lib/rules/evaluateCompliance";
+import type { ComplianceReport, OverallStatus } from "@/lib/rules/types";
 
 export default function ScannerPage() {
   const [images, setImages] = useState<UploadedImage[]>([]);
@@ -14,6 +17,7 @@ export default function ScannerPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [declaration, setDeclaration] = useState<ProductDeclaration | null>(null);
+  const [complianceReport, setComplianceReport] = useState<ComplianceReport | null>(null);
 
   // Track whether OCR has run at least once, purely for button label text.
   const hasRunOnce = useRef(false);
@@ -31,6 +35,7 @@ export default function ScannerPage() {
     setIsProcessing(true);
     hasRunOnce.current = true;
     setDeclaration(null); // clear any previous extraction while re-running
+    setComplianceReport(null); // clear any previous compliance result while re-running
 
     // Reset status for the images we're about to (re)process.
     setOcrResults((prev) => {
@@ -87,7 +92,13 @@ export default function ScannerPage() {
 
     // Structured declaration extraction — deterministic, no AI/LLM call.
     // Runs even if some images failed OCR or produced no text.
-    setDeclaration(extractDeclaration(collectedChunks));
+    const nextDeclaration = extractDeclaration(collectedChunks);
+    setDeclaration(nextDeclaration);
+
+    // Rule engine evaluation — deterministic, no AI/LLM call, and fully
+    // independent from OCR/extraction internals (only depends on the
+    // ProductDeclaration shape).
+    setComplianceReport(evaluateCompliance(nextDeclaration));
   };
 
   // Aggregate pipeline status for the sidebar, derived from per-image results.
@@ -109,9 +120,15 @@ export default function ScannerPage() {
     PROCESSING: "text-status-review",
     COMPLETE: "text-status-pass",
     ERROR: "text-status-fail",
+    PASS: "text-status-pass",
+    FAIL: "text-status-fail",
+    REVIEW: "text-status-review",
   };
 
   const declarationStatus: "PENDING" | "COMPLETE" = declaration ? "COMPLETE" : "PENDING";
+  const ruleEvalStatus: OverallStatus | "PENDING" = complianceReport
+    ? complianceReport.overallStatus
+    : "PENDING";
 
   const buttonLabel = isProcessing
     ? "OCR Processing…"
@@ -120,7 +137,7 @@ export default function ScannerPage() {
     : "Run OCR";
 
   return (
-    <div className="max-w-350 mx-auto px-6 py-8">
+    <div className="max-w-[1400px] mx-auto px-6 py-8">
       <div className="mb-6">
         <h1 className="text-lg font-semibold text-ink">Product Scanner</h1>
         <p className="text-sm text-ink-muted mt-1">
@@ -135,6 +152,9 @@ export default function ScannerPage() {
           <OCRResults images={images} results={ocrResults} />
           {images.length > 0 && declaration && (
             <DeclarationPanel declaration={declaration} />
+          )}
+          {images.length > 0 && complianceReport && (
+            <CompliancePanel report={complianceReport} />
           )}
         </div>
 
@@ -165,9 +185,13 @@ export default function ScannerPage() {
                 {declarationStatus}
               </span>
             </li>
-            <li className="flex items-center justify-between opacity-40">
+            <li className="flex items-center justify-between">
               <span className="text-ink">Rule evaluation</span>
-              <span className="font-mono text-xs text-ink-muted">PENDING</span>
+              <span
+                className={`font-mono text-xs ${pipelineStatusColor[ruleEvalStatus]}`}
+              >
+                {ruleEvalStatus}
+              </span>
             </li>
           </ol>
 
