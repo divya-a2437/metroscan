@@ -27,6 +27,8 @@ function evaluateProductName(d: ProductDeclaration): RuleResult {
       message: "A product or generic name was detected on the package.",
       evidence: nameField.evidence,
       severity: "MEDIUM",
+      detectedValue: nameField.value,
+      confidence: nameField.confidence,
     };
   }
 
@@ -60,6 +62,8 @@ function evaluateResponsibleEntity(d: ProductDeclaration): RuleResult {
       message: `A responsible entity was identified (${found.label}: "${found.field.value}").`,
       evidence: found.field.evidence,
       severity: "HIGH",
+      detectedValue: found.field.value,
+      confidence: found.field.confidence,
     };
   }
 
@@ -86,6 +90,8 @@ function evaluateAddress(d: ProductDeclaration): RuleResult {
       message: "An address was detected on the package.",
       evidence: d.address.evidence,
       severity: "MEDIUM",
+      detectedValue: d.address.value,
+      confidence: d.address.confidence,
     };
   }
 
@@ -103,7 +109,7 @@ function evaluateAddress(d: ProductDeclaration): RuleResult {
 
 /** Rule PC-004 — Net quantity with a recognized unit. */
 function evaluateNetQuantity(d: ProductDeclaration): RuleResult {
-  const { value, unit, evidence } = d.net_quantity;
+  const { value, unit, confidence, evidence } = d.net_quantity;
 
   if (value !== null && unit !== null && RECOGNIZED_UNITS.includes(unit)) {
     return {
@@ -114,6 +120,8 @@ function evaluateNetQuantity(d: ProductDeclaration): RuleResult {
       message: `Net quantity detected as ${value} ${unit}.`,
       evidence,
       severity: "HIGH",
+      detectedValue: `${value} ${unit}`,
+      confidence,
     };
   }
 
@@ -126,6 +134,8 @@ function evaluateNetQuantity(d: ProductDeclaration): RuleResult {
       message: `A net quantity value (${value}) was detected but its unit ("${unit ?? "none"}") is missing or not a recognized unit of measure.`,
       evidence,
       severity: "HIGH",
+      detectedValue: `${value} ${unit ?? "(no unit)"}`,
+      confidence,
     };
   }
 
@@ -153,6 +163,8 @@ function evaluateMrp(d: ProductDeclaration): RuleResult {
         message: `MRP detected as a valid positive value (${numeric}).`,
         evidence: d.mrp.evidence,
         severity: "HIGH",
+        detectedValue: d.mrp.value,
+        confidence: d.mrp.confidence,
       };
     }
     return {
@@ -163,6 +175,8 @@ function evaluateMrp(d: ProductDeclaration): RuleResult {
       message: `MRP was detected ("${d.mrp.value}") but is not a valid positive number.`,
       evidence: d.mrp.evidence,
       severity: "HIGH",
+      detectedValue: d.mrp.value,
+      confidence: d.mrp.confidence,
     };
   }
 
@@ -188,6 +202,8 @@ function evaluateConsumerCare(d: ProductDeclaration): RuleResult {
       message: "Consumer care contact details were detected on the package.",
       evidence: d.consumer_care.evidence,
       severity: "MEDIUM",
+      detectedValue: d.consumer_care.value,
+      confidence: d.consumer_care.confidence,
     };
   }
 
@@ -225,6 +241,8 @@ function evaluateCountryOfOrigin(d: ProductDeclaration): RuleResult {
       message: `Country of origin detected: "${d.country_of_origin.value}".`,
       evidence: d.country_of_origin.evidence,
       severity: "MEDIUM",
+      detectedValue: d.country_of_origin.value,
+      confidence: d.country_of_origin.confidence,
     };
   }
 

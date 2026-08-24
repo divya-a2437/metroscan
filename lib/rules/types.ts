@@ -23,6 +23,15 @@ export interface RuleResult {
   message: string;
   evidence: FieldEvidence | null;
   severity: RuleSeverity;
+  /**
+   * The concrete extracted value this decision was based on, when one
+   * exists (e.g. "45" for MRP, "200 g" for net quantity). Optional and
+   * only populated where a rule actually used a value to decide — REVIEW
+   * and NOT_CHECKED results generally have nothing concrete to show here.
+   */
+  detectedValue?: string | null;
+  /** OCR confidence (0–100) of the source image the value came from. */
+  confidence?: number | null;
 }
 
 export type OverallStatus = "PASS" | "FAIL" | "REVIEW";
