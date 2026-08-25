@@ -10,6 +10,7 @@ import { extractDeclaration } from "@/lib/extraction/deterministicExtractor";
 import type { OcrChunk, ProductDeclaration } from "@/lib/extraction/schema";
 import { evaluateCompliance } from "@/lib/rules/evaluateCompliance";
 import type { ComplianceReport, OverallStatus } from "@/lib/rules/types";
+import { generateInspectionId, type InspectionMeta } from "@/lib/inspection";
 
 export default function ScannerPage() {
   const [images, setImages] = useState<UploadedImage[]>([]);
@@ -18,6 +19,7 @@ export default function ScannerPage() {
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [declaration, setDeclaration] = useState<ProductDeclaration | null>(null);
   const [complianceReport, setComplianceReport] = useState<ComplianceReport | null>(null);
+  const [inspectionMeta, setInspectionMeta] = useState<InspectionMeta | null>(null);
 
   // Track whether OCR has run at least once, purely for button label text.
   const hasRunOnce = useRef(false);
@@ -36,6 +38,7 @@ export default function ScannerPage() {
     hasRunOnce.current = true;
     setDeclaration(null); // clear any previous extraction while re-running
     setComplianceReport(null); // clear any previous compliance result while re-running
+    setInspectionMeta(null); // clear any previous inspection metadata while re-running
 
     // Reset status for the images we're about to (re)process.
     setOcrResults((prev) => {
@@ -99,6 +102,14 @@ export default function ScannerPage() {
     // independent from OCR/extraction internals (only depends on the
     // ProductDeclaration shape).
     setComplianceReport(evaluateCompliance(nextDeclaration));
+
+    // Client-side-only inspection metadata (ID + timestamp) generated once
+    // per completed run. Not persisted anywhere — no database in this step.
+    setInspectionMeta({
+      inspectionId: generateInspectionId(),
+      timestamp: new Date().toISOString(),
+      imageCount: images.length,
+    });
   };
 
   // Aggregate pipeline status for the sidebar, derived from per-image results.
@@ -153,8 +164,8 @@ export default function ScannerPage() {
           {images.length > 0 && declaration && (
             <DeclarationPanel declaration={declaration} />
           )}
-          {images.length > 0 && complianceReport && (
-            <CompliancePanel report={complianceReport} />
+          {images.length > 0 && complianceReport && inspectionMeta && (
+            <CompliancePanel report={complianceReport} inspection={inspectionMeta} />
           )}
         </div>
 
