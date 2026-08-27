@@ -1,829 +1,239 @@
-# 🔎 MetroScan
+# MetroScan
 
-### Legal Metrology Compliance & Inspection System
+**AI-assisted, deterministic compliance screening for packaged commodities — built for Smart India Hackathon (Problem Statement 26034).**
 
-> **Scan. Extract. Evaluate. Verify.**
-
-MetroScan is a web-based inspection and decision-support prototype designed to assist inspectors in screening **packaged commodities** against key declaration requirements under India's **Legal Metrology (Packaged Commodities) framework**.
-
-The system processes package images through OCR, converts detected text into structured declarations, evaluates those declarations using a deterministic rule engine, and presents an evidence-backed inspection summary for human verification.
+> Prototype status: client-side only, no backend, no database, no AI-made legal decisions. Every result requires human verification.
 
 ---
 
-## 🚀 Overview
+## Overview
 
-Manual inspection of packaged commodities often requires checking multiple declarations across different sides of a package.
+MetroScan is a browser-based prototype that screens photographs of packaged-commodity labels against a subset of declaration requirements relevant to India's Legal Metrology (Packaged Commodities) framework. An inspector uploads one or more images of a package, the system reads the label text, extracts structured declaration fields, and runs a transparent, deterministic rule engine to flag what's present, what's missing, and what needs a human look.
 
-MetroScan streamlines the initial screening process through a structured pipeline:
+MetroScan does **not** decide legal compliance on its own. It is a decision-support tool: OCR and extraction locate information; a plain, auditable rule engine — not an AI model — produces every PASS/FAIL/REVIEW/NOT CHECKED result.
 
-    ┌─────────────────────┐
-    │   Package Images    │
-    └──────────┬──────────┘
-               │
-               ▼
-    ┌─────────────────────┐
-    │    Image Upload     │
-    └──────────┬──────────┘
-               │
-               ▼
-    ┌─────────────────────┐
-    │    OCR Processing   │
-    └──────────┬──────────┘
-               │
-               ▼
-    ┌─────────────────────┐
-    │ Declaration         │
-    │ Extraction          │
-    └──────────┬──────────┘
-               │
-               ▼
-    ┌─────────────────────┐
-    │ Deterministic       │
-    │ Rule Engine         │
-    └──────────┬──────────┘
-               │
-               ▼
-    ┌─────────────────────┐
-    │ Compliance          │
-    │ Assessment          │
-    └──────────┬──────────┘
-               │
-               ▼
-    ┌─────────────────────┐
-    │ Evidence &          │
-    │ Inspection Summary  │
-    └─────────────────────┘
+## Problem
 
-The goal is not to replace an inspector.
+Under India's Legal Metrology (Packaged Commodities) Rules, 2011, pre-packaged goods must carry specific mandatory declarations — manufacturer/packer/importer details, net quantity, MRP, consumer care information, and more. Manually checking these declarations across large volumes of packaged products is slow, inconsistent, and easy to get wrong when done under time pressure. Problem Statement 26034 asks for a software system that can check this compliance by scanning products, images, and labels.
 
-Instead, MetroScan helps an inspector **identify potentially relevant declarations, surface possible issues, and verify evidence faster.**
+## Solution
 
----
+MetroScan implements the core of that workflow as a working, demonstrable pipeline:
 
-# ✨ Key Features
+1. An inspector photographs (or uploads) a package from multiple angles.
+2. On-device OCR reads the visible text.
+3. A deterministic extractor turns raw OCR text into structured declaration fields.
+4. A rule engine evaluates those fields against a prototype set of Legal Metrology declaration requirements.
+5. Results are shown with full evidence — what was detected, where, and why — so a human inspector can verify and act.
 
-## 📷 Multi-Image Package Scanning
+Every step before "human verification" runs entirely in the browser. Nothing is sent to a server, stored in a database, or decided by a language model.
 
-Inspectors can upload multiple images of the same package.
+## Key Features
 
-Supported package views can include:
+- Multi-image upload with role tagging (front / back / side / top / bottom / unspecified)
+- Client-side OCR (Tesseract.js) with live per-image status and confidence
+- Deterministic declaration extraction — no AI/LLM involved
+- Deterministic compliance rule engine covering 7 declaration categories
+- Full evidence trail per rule: detected value, raw OCR text, source image, source role, OCR confidence
+- "Issues Requiring Attention" triage view (FAIL/REVIEW rules only)
+- Client-generated Inspection ID, timestamp, and image count
+- "Copy Inspection Summary" clipboard export for demo/audit purposes
+- Explicit human-verification disclaimer throughout
 
-- Front
-- Back
-- Side
-- Top
-- Bottom
+## Pipeline
 
-This allows information distributed across different package surfaces to be considered together.
+```mermaid
+flowchart LR
+    A[Image Upload] --> B[OCR]
+    B --> C[Deterministic Extraction]
+    C --> D[Rule Engine]
+    D --> E[Evidence]
+    E --> F[Human Verification]
+```
 
----
+| Stage | What happens | Where |
+|---|---|---|
+| Image Upload | Multiple images accepted, role assigned per image, live previews | `components/scanner/ImageUploader.tsx` |
+| OCR | Tesseract.js runs sequentially through a single worker; per-image status (WAITING → PROCESSING → COMPLETE/ERROR) and confidence | `lib/ocr.ts`, `components/scanner/OCRResults.tsx` |
+| Deterministic Extraction | Regex/keyword matching converts OCR text into a structured `ProductDeclaration`, no AI call | `lib/extraction/` |
+| Rule Engine | 7 deterministic rules evaluate the declaration, producing PASS/FAIL/REVIEW/NOT_CHECKED | `lib/rules/` |
+| Evidence | Every rule result carries its detected value, raw OCR line, source image, source role, and OCR confidence | `components/scanner/CompliancePanel.tsx` |
+| Human Verification | Inspector reviews the Compliance Assessment and Issues Requiring Attention before acting | — (manual step) |
 
-## 🔤 OCR-Based Text Detection
+## Architecture Overview
 
-MetroScan processes uploaded package images using OCR.
+```mermaid
+flowchart TD
+    subgraph Browser [Runs entirely client-side]
+        A[ImageUploader] --> B[Tesseract Worker]
+        B --> C[Deterministic Extractor]
+        C --> D[ProductDeclaration]
+        D --> E[Rule Engine]
+        E --> F[ComplianceReport]
+        F --> G[CompliancePanel:<br/>Evidence + Inspection Summary]
+    end
+```
 
-The OCR stage captures:
+No API routes, no server-side processing, no external service calls other than Tesseract.js's one-time fetch of its own OCR core/language data. See [`docs/architecture.md`](docs/architecture.md) for the full breakdown.
 
-- Extracted text
-- OCR confidence
-- Source image
-- Image role
+## Technology Stack
 
-OCR processing is handled independently for each uploaded image, allowing the system to continue processing even when an individual image encounters an error.
-
----
-
-## 🧾 Structured Declaration Extraction
-
-Raw OCR output is converted into structured product declarations.
-
-The current prototype extracts information such as:
-
-| Declaration | Description |
+| Layer | Choice |
 |---|---|
-| Product / Generic Name | Name or generic description of the product |
-| Manufacturer | Manufacturer declaration |
-| Packer | Packer declaration |
-| Importer | Importer declaration |
-| Address | Responsible entity address |
-| Net Quantity | Quantity and unit |
-| MRP | Maximum Retail Price |
-| Consumer Care | Consumer support/contact information |
-| Country of Origin | Country of origin declaration |
+| Framework | Next.js (App Router) + React + TypeScript |
+| Styling | Tailwind CSS v4 (`@theme` tokens, no `tailwind.config.js`) |
+| Icons | lucide-react |
+| OCR | Tesseract.js (client-side, no Python, no server) |
+| Extraction | Deterministic TypeScript (regex/keyword matching) |
+| Compliance Logic | Deterministic TypeScript rule engine |
+| Persistence | None — no database, no backend, session-only state |
+| AI/LLM | Not used for any compliance decision |
 
-The extracted information is represented using a typed `ProductDeclaration` structure.
+## Project Structure
+```text
+metroscan/
+├── app/
+│ ├── page.tsx # Landing page
+│ ├── layout.tsx # Root layout, fonts, header
+│ ├── globals.css # Tailwind v4 theme tokens
+│ └── scanner/
+│ └── page.tsx # Scanner workflow + page state
+├── components/
+│ ├── layout/
+│ │ └── Header.tsx
+│ └── scanner/
+│ ├── ImageUploader.tsx # Upload, preview, role assignment
+│ ├── OCRResults.tsx # Per-image OCR status/text/confidence
+│ ├── DeclarationPanel.tsx # Extracted ProductDeclaration display
+│ └── CompliancePanel.tsx # Compliance report, evidence, summary
+├── lib/
+│ ├── ocr.ts # Tesseract worker lifecycle
+│ ├── inspection.ts # Inspection ID + clipboard summary
+│ ├── utils.ts # Small shared helpers
+│ ├── extraction/
+│ │ ├── schema.ts # ProductDeclaration, FieldEvidence, OcrChunk
+│ │ ├── normalize.ts # Unit/number normalization
+│ │ └── deterministicExtractor.ts
+│ └── rules/
+│ ├── types.ts # RuleResult, ComplianceReport
+│ ├── packagedCommodityRules.ts # The 7 prototype rules
+│ └── evaluateCompliance.ts
+└── docs/
+├── architecture.md
+├── compliance-engine.md
+└── inspection-workflow.md
+```
 
----
+## Compliance Rules (Prototype Coverage)
 
-# ⚖️ Deterministic Compliance Engine
+MetroScan currently evaluates **7 declaration categories** — a deliberate prototype subset, not the complete Legal Metrology (Packaged Commodities) Rules, 2011.
 
-MetroScan does **not** use an LLM to directly decide whether a package is compliant.
+| Rule ID | Category | Result depends on |
+|---|---|---|
+| PC-001 | Product / Generic Name | Detected on the package |
+| PC-002 | Manufacturer / Packer / Importer | At least one responsible entity identified |
+| PC-003 | Address | Detected on the package |
+| PC-004 | Net Quantity | Value + recognized unit (g, kg, ml, l) |
+| PC-005 | Maximum Retail Price (MRP) | Valid, positive numeric value |
+| PC-006 | Consumer Care Details | Contact information detected |
+| PC-007 | Country of Origin | Detected where an importer declaration signals applicability |
 
-Instead, extracted declarations are passed through a deterministic TypeScript rule engine.
-
-### Current Prototype Rules
-
-| Rule ID | Requirement |
-|---|---|
-| `PC-001` | Product / Generic Name |
-| `PC-002` | Manufacturer / Packer / Importer |
-| `PC-003` | Address |
-| `PC-004` | Net Quantity |
-| `PC-005` | Maximum Retail Price (MRP) |
-| `PC-006` | Consumer Care Details |
-| `PC-007` | Country of Origin |
-
-Each rule produces one of four statuses:
-
-    PASS
-    FAIL
-    REVIEW
-    NOT CHECKED
-
-### Status Meaning
+Every rule returns one of four statuses:
 
 | Status | Meaning |
 |---|---|
-| 🟢 **PASS** | A valid-looking declaration was detected |
-| 🔴 **FAIL** | Detected information appears invalid or insufficient |
-| 🟠 **REVIEW** | Human verification is recommended |
-| ⚪ **NOT CHECKED** | Applicability could not be established |
+| `PASS` | A valid-looking declaration was found. |
+| `FAIL` | A declaration was found but is malformed or invalid. |
+| `REVIEW` | Missing or ambiguous — requires manual verification of the physical package. |
+| `NOT_CHECKED` | Applicability itself could not be determined from the available data. |
 
----
+Full rule-by-rule logic: [`docs/compliance-engine.md`](docs/compliance-engine.md).
 
-# 🔍 Evidence-Based Inspection
+## Evidence & Explainability
 
-Every rule result can expose the evidence used during evaluation.
+Every rule result is designed to answer three questions for an inspector:
 
-The inspection panel can show:
+- **What did the system detect?** — the `detectedValue` extracted from the label
+- **Where did it detect it?** — the source image filename and declared role (front/back/etc.)
+- **Why this result?** — a plain-language `message`, plus the exact raw OCR line matched and its OCR confidence
 
-- Rule ID
-- Rule title
-- Status
-- Decision message
-- Detected value
-- OCR confidence
-- Raw OCR text
-- Source image
-- Source image role
+`OCR confidence` is always a measure of text-recognition confidence — **never** a measure of legal correctness. This distinction is preserved throughout the UI and the exported inspection summary. FAIL and REVIEW results are visually emphasized (colored border, expanded by default) so they're impossible to miss during review.
 
-Example:
+## Installation & Local Setup
 
-    PC-005  Maximum Retail Price (MRP)
+**Requirements:** Node.js 18+ and npm.
 
-    PASS
+```bash
+git clone <your-repo-url>
+cd metroscan
+npm install
+npm run dev
+```
 
-    MRP detected as a valid positive value (₹120).
+Open `http://localhost:3000`, click **Start Scan**, and go to `/scanner`.
 
-    Detected value:
-    120
+To verify a production build:
 
-    OCR confidence:
-    94%
+```bash
+npm run build
+```
 
-    Evidence:
-    "MRP ₹120/-"
+No environment variables, API keys, or external service accounts are required — everything runs locally in the browser.
 
-    Source:
-    back-label.jpg
-    (BACK)
+## Demo Workflow
 
-This makes automated screening more transparent and easier to verify.
+1. Open the app and navigate to **Scanner**.
+2. Upload one or more package images and assign roles (front/back/etc.).
+3. Click **Run OCR** — watch per-image status move through WAITING → PROCESSING → COMPLETE, with OCR confidence shown.
+4. Review the **Extracted Declaration** panel — each field shows its detected value or "Not detected."
+5. Review the **Compliance Assessment** panel:
+   - **Inspection Summary** — Inspection ID, timestamp, image count, overall status, PASS/FAIL/REVIEW/NOT CHECKED counts
+   - **Issues Requiring Attention** — a compact triage list of only FAIL/REVIEW rules
+   - Full rule list — expand any rule to see its evidence
+6. Click **Copy Inspection Summary** to export a plain-text summary for a demo or manual record.
 
----
+A full presentation script is in [`docs/demo-flow.md`](docs/demo-flow.md) if present in your checkout.
 
-# 🚨 Issues Requiring Attention
+## Current Prototype Coverage
 
-MetroScan highlights rules that require additional attention.
+- ✅ Multi-image upload with role tagging
+- ✅ Client-side OCR with per-image status and confidence
+- ✅ Deterministic structured declaration extraction
+- ✅ Deterministic rule engine covering 7 declaration categories
+- ✅ Full evidence trail per rule result
+- ✅ Client-generated Inspection ID, timestamp, and image count
+- ✅ Clipboard-based inspection summary export
+- ❌ No database or persistence
+- ❌ No user authentication
+- ❌ No PDF report generation
+- ❌ No bounding-box / on-image evidence highlighting
+- ❌ No AI/LLM involved in any compliance decision
 
-    ┌─────────────────────────────────────┐
-    │ ISSUES REQUIRING ATTENTION          │
-    ├─────────────────────────────────────┤
-    │                                     │
-    │ 🔴 PC-004  Net Quantity             │
-    │    FAIL                             │
-    │    Quantity detected without a      │
-    │    recognized unit.                 │
-    │                                     │
-    │ 🟠 PC-007  Country of Origin        │
-    │    REVIEW                           │
-    │    Importer detected but country    │
-    │    of origin was not identified.    │
-    │                                     │
-    └─────────────────────────────────────┘
+## Limitations
 
-FAIL and REVIEW results receive additional visual emphasis so an inspector can quickly identify areas that need manual verification.
+- **Not a complete legal compliance system.** Only 7 declaration categories are checked; many statutory requirements (font-size thresholds, category-specific exemptions, penalty provisions, etc.) are not implemented.
+- **OCR accuracy depends on image quality.** Blurry, low-light, or heavily stylized label text can reduce extraction accuracy — this is why every result is traceable to raw OCR text and confidence, and REVIEW is used liberally rather than guessing.
+- **Deterministic extraction has known weak points**, particularly product-name detection, which uses a simple heuristic (first substantial line on the front-image text) rather than true layout understanding.
+- **No persistence.** Refreshing the page or closing the tab discards all uploaded images and results — there is no database in this prototype.
+- **Single-session, single-user.** No accounts, no multi-inspector workflows, no audit log beyond the in-session Inspection Summary.
 
----
+## Future Scope
 
-# 🧑‍💼 Human-in-the-Loop
+- PDF inspection report generation from the existing `ComplianceReport` data
+- Bounding-box evidence: linking OCR word coordinates to declaration fields for on-image highlighting
+- Persistent storage (e.g. Postgres/Supabase) for inspection history and case management
+- An optional AI-assisted extractor as an alternative to the deterministic one, kept behind the same interface so the rule engine itself never needs to change
+- Expanded rule coverage, each rule sourced and verified against the official consolidated Legal Metrology (Packaged Commodities) Rules text
+- Multi-inspector accounts and role-based access, if the system moves beyond a single-session prototype
 
-MetroScan is designed around a **human-in-the-loop inspection model**.
+## Privacy & Data Handling
 
-    AUTOMATED
-        │
-        ▼
-    Image Processing
-        │
-        ▼
-        OCR
-        │
-        ▼
-    Declaration
-    Extraction
-        │
-        ▼
-    Rule Evaluation
-        │
-        ▼
-    Evidence-Based
-        Result
-        │
-        ▼
-       HUMAN
-    VERIFICATION
+MetroScan processes everything **locally in the browser**. Uploaded images are held in memory (as browser `File`/object URLs) for the current session only and are never uploaded to a server or third-party API — OCR runs on-device via Tesseract.js. Closing or refreshing the tab discards all images, OCR results, extracted declarations, and compliance reports. Nothing is logged, stored, or transmitted outside the user's own machine.
 
-The system assists with detection and screening.
+## Legal Disclaimer
 
-The inspector remains responsible for final verification.
+MetroScan is an **AI-assisted decision-support prototype**, not a legally binding compliance determination system. It does not represent, and should not be relied upon as, a certification of compliance or non-compliance with the Legal Metrology (Packaged Commodities) Rules, 2011 or any other applicable law. All results — PASS, FAIL, REVIEW, and NOT CHECKED — require verification by a qualified human inspector before any enforcement, reporting, or business decision is made.
 
----
+## Smart India Hackathon Context
 
-# 🆔 Inspection Summary
-
-Each completed scan generates a temporary inspection reference.
-
-The inspection summary contains:
-
-- Inspection ID
-- Timestamp
-- Number of images scanned
-- Overall status
-- PASS count
-- FAIL count
-- REVIEW count
-- NOT CHECKED count
-
-Example:
-
-    MetroScan Inspection
-
-    Inspection ID: INS-2026-08-26-A7K2
-    Date: 26/08/2026, 8:30 PM
-    Images Scanned: 3
-
-    Overall: REVIEW REQUIRED
-
-    PASS: 4
-    FAIL: 1
-    REVIEW: 2
-    NOT CHECKED: 0
-
-The inspection ID is generated client-side for prototype demonstration.
-
-It is **not stored in a database** in the current version.
-
----
-
-# 📋 Copy Inspection Summary
-
-The inspection result can be copied to the clipboard using the built-in:
-
-**Copy Inspection Summary**
-
-This makes it easy to transfer results into:
-
-- Inspection notes
-- Reports
-- Documentation
-- Manual audit records
-- Demonstration workflows
-
----
-
-# 🧠 Why Deterministic Rules?
-
-Compliance systems need to be explainable.
-
-Instead of asking an AI model:
-
-> "Is this package legally compliant?"
-
-MetroScan separates **detection** from **evaluation**.
-
-    OCR / Detection
-          │
-          ▼
-    Structured Data
-          │
-          ▼
-    Explicit Rules
-          │
-          ▼
-    Compliance Status
-          │
-          ▼
-    Human Verification
-
-This provides several advantages:
-
-- Predictable results
-- Reproducible decisions
-- Easier debugging
-- Better explainability
-- Traceable evidence
-- Reduced dependence on generative AI hallucinations
-
-AI/OCR can help identify information.
-
-The deterministic rule engine evaluates the detected information.
-
----
-
-# 🏗️ System Architecture
-
-    ┌───────────────────┐
-    │   Package Images  │
-    └─────────┬─────────┘
-              │
-              ▼
-    ┌───────────────────┐
-    │   ImageUploader   │
-    └─────────┬─────────┘
-              │
-              ▼
-    ┌───────────────────┐
-    │    OCR Engine     │
-    │    Tesseract      │
-    └─────────┬─────────┘
-              │
-      OCR text + confidence
-              │
-              ▼
-    ┌───────────────────┐
-    │   Deterministic   │
-    │     Extractor     │
-    └─────────┬─────────┘
-              │
-              ▼
-    ┌───────────────────┐
-    │ ProductDeclaration│
-    └─────────┬─────────┘
-              │
-              ▼
-    ┌───────────────────┐
-    │ Compliance Rule   │
-    │      Engine       │
-    └─────────┬─────────┘
-              │
-              ▼
-    ┌───────────────────┐
-    │ ComplianceReport  │
-    └─────────┬─────────┘
-              │
-              ▼
-    ┌──────────────────────────────┐
-    │     Inspection Dashboard     │
-    │                              │
-    │ • Status                     │
-    │ • Evidence                   │
-    │ • Confidence                 │
-    │ • Issues                     │
-    │ • Inspection Summary         │
-    └──────────────────────────────┘
-              │
-              ▼
-    ┌───────────────────┐
-    │ Human Verification│
-    └───────────────────┘
-
----
-
-# 🛠️ Technology Stack
-
-### Frontend
-
-- **Next.js**
-- **React**
-- **TypeScript**
-- **Tailwind CSS**
-- **Lucide React**
-
-### Processing
-
-- **Tesseract.js / OCR**
-- Deterministic TypeScript extraction
-- Deterministic compliance rule engine
-
-### Architecture
-
-The current prototype is primarily client-side.
-
-There is currently:
-
-- No database
-- No authentication system
-- No backend dependency
-- No external compliance API
-- No LLM dependency for compliance decisions
-
-This keeps the prototype lightweight and suitable for rapid demonstration.
-
----
-
-# 📁 Project Structure
-
-    metroscan/
-    │
-    ├── app/
-    │   ├── page.tsx
-    │   ├── globals.css
-    │   │
-    │   └── scanner/
-    │       └── page.tsx
-    │
-    ├── components/
-    │   └── scanner/
-    │       ├── ImageUploader.tsx
-    │       ├── OCRResults.tsx
-    │       ├── DeclarationPanel.tsx
-    │       └── CompliancePanel.tsx
-    │
-    ├── lib/
-    │   ├── ocr.ts
-    │   ├── inspection.ts
-    │   │
-    │   ├── extraction/
-    │   │   ├── schema.ts
-    │   │   ├── deterministicExtractor.ts
-    │   │   └── normalize.ts
-    │   │
-    │   └── rules/
-    │       ├── types.ts
-    │       ├── packagedCommodityRules.ts
-    │       └── evaluateCompliance.ts
-    │
-    ├── public/
-    │
-    ├── package.json
-    ├── tsconfig.json
-    ├── next.config.ts
-    └── README.md
-
----
-
-# 🔄 Inspection Workflow
-
-### Step 1 — Upload
-
-The inspector uploads one or more images of the package.
-
-Possible views:
-
-- Front
-- Back
-- Side
-- Top
-- Bottom
-
-### Step 2 — OCR
-
-MetroScan extracts visible text from each image.
-
-**Image → OCR → Text + Confidence + Source**
-
-### Step 3 — Declaration Extraction
-
-OCR output is processed to identify relevant declarations.
-
-**OCR Text → Pattern / Field Extraction → ProductDeclaration**
-
-### Step 4 — Compliance Evaluation
-
-The structured declaration is evaluated using the rule engine.
-
-**ProductDeclaration → Compliance Rules → RuleResult[] → ComplianceReport**
-
-### Step 5 — Inspection Review
-
-The inspector receives:
-
-- Overall status
-- Individual rule results
-- Detected values
-- Evidence
-- OCR confidence
-- Source information
-- Issues requiring attention
-
-### Step 6 — Human Verification
-
-The inspector verifies the automated result against the actual package before taking any enforcement action.
-
----
-
-# 📊 Current Prototype Coverage
-
-| Feature | Status |
-|---|---|
-| Image Upload | ✅ |
-| Multi-Image Processing | ✅ |
-| OCR | ✅ |
-| OCR Confidence | ✅ |
-| Structured Declaration Extraction | ✅ |
-| Manufacturer Detection | ✅ |
-| Packer Detection | ✅ |
-| Importer Detection | ✅ |
-| Address Detection | ✅ |
-| Net Quantity Detection | ✅ |
-| MRP Detection | ✅ |
-| Consumer Care Detection | ✅ |
-| Country of Origin Detection | ✅ |
-| Deterministic Rule Engine | ✅ |
-| PASS / FAIL / REVIEW | ✅ |
-| NOT CHECKED State | ✅ |
-| Evidence Display | ✅ |
-| Inspection ID | ✅ |
-| Inspection Timestamp | ✅ |
-| Inspection Summary | ✅ |
-| Copy Summary | ✅ |
-| Issues Requiring Attention | ✅ |
-| Human Verification Disclaimer | ✅ |
-| Database | ⏳ Future Scope |
-| Persistent Inspection History | ⏳ Future Scope |
-| PDF Export | ⏳ Future Scope |
-
----
-
-# 🚀 Getting Started
-
-## Prerequisites
-
-Make sure you have installed:
-
-- Node.js
-- npm
-- Git
-
-## Clone the Repository
-
-    git clone <YOUR-METROSCAN-REPOSITORY-URL>
-    cd metroscan
-
-## Install Dependencies
-
-    npm install
-
-## Start Development Server
-
-    npm run dev
-
-Open:
-
-**http://localhost:3000**
-
----
-
-# 🧪 Verification
-
-Run TypeScript validation:
-
-    npx tsc --noEmit
-
-Run the production build:
-
-    npm run build
-
-Start the production server:
-
-    npm start
-
----
-
-# 🖥️ Demo Flow
-
-For a live demonstration, the recommended flow is:
-
-1. Open MetroScan
-2. Start Scanner
-3. Upload package images
-4. Run OCR
-5. Show detected text
-6. Show structured declarations
-7. Show compliance assessment
-8. Open Issues Requiring Attention
-9. Inspect evidence and OCR confidence
-10. Copy Inspection Summary
-11. Explain human verification
-
-This demonstrates the complete pipeline without requiring external infrastructure.
-
----
-
-# 🎯 Design Philosophy
-
-MetroScan follows five core principles.
-
-### 1. Explainability
-
-Every automated result should be understandable.
-
-### 2. Evidence First
-
-Detected information should be connected to its source whenever possible.
-
-### 3. Human-in-the-Loop
-
-Automation assists the inspector rather than replacing the inspector.
-
-### 4. Deterministic Evaluation
-
-Compliance rules should be explicit and reproducible.
-
-### 5. Lightweight Prototype
-
-The system avoids unnecessary infrastructure during the prototype stage.
-
----
-
-# 🔐 Privacy & Data Handling
-
-The current prototype does not implement persistent inspection storage.
-
-Inspection metadata such as the temporary inspection ID and timestamp is generated client-side.
-
-No permanent inspection database is required for the current prototype workflow.
-
-Future production deployments would require appropriate:
-
-- Data retention policies
-- Access control
-- Encryption
-- Audit logging
-- Privacy controls
-- Secure storage
-
----
-
-# ⚠️ Limitations
-
-MetroScan is currently a prototype.
-
-OCR performance can be affected by:
-
-- Low image quality
-- Blur
-- Poor lighting
-- Curved packaging
-- Small text
-- Stylized fonts
-- Reflections
-- Occlusion
-- Complex layouts
-
-Similarly, deterministic extraction may fail when declarations are presented in unexpected formats.
-
-A `REVIEW` result therefore does not necessarily mean that a package is non-compliant.
-
-It means that the available automated evidence is insufficient for an automatic conclusion.
-
----
-
-# 🔮 Future Scope
-
-## Advanced OCR
-
-- Image preprocessing
-- Perspective correction
-- Better low-light recognition
-- Multilingual OCR
-- Regional language support
-- Multiple OCR engines
-
-## Improved Extraction
-
-- Better declaration classification
-- Layout-aware extraction
-- Cross-image field matching
-- Confidence-aware extraction
-- Advanced normalization
-
-## Expanded Compliance Engine
-
-Future versions can extend the deterministic rule engine to cover:
-
-- Additional mandatory declarations
-- Category-specific requirements
-- Additional quantity/unit validation
-- Date-related declarations
-- Packaging-specific requirements
-- Additional Legal Metrology rules
-
-## Inspector Platform
-
-Potential production features:
-
-- Inspector authentication
-- Persistent inspection records
-- Inspection history
-- Search and filtering
-- Case management
-- Review and approval workflows
-- PDF reports
-- Digital audit trails
-
-## Advanced Evidence
-
-Future versions could provide:
-
-- OCR bounding boxes
-- Highlighted declaration regions
-- Click-to-source evidence
-- Image overlays
-- Side-by-side evidence verification
-
----
-
-# 📈 Product Vision
-
-MetroScan can evolve from a prototype screening tool into a broader **digital inspection assistant**.
-
-    TODAY
-      │
-      ▼
-    Package Scanning
-      │
-      ▼
-    OCR + Extraction
-      │
-      ▼
-    Rule-Based Screening
-      │
-      ▼
-    Human Verification
-      │
-      ▼
-    FUTURE
-      │
-      ▼
-    Persistent Inspections
-      │
-      ▼
-    Digital Case Files
-      │
-      ▼
-    Evidence Management
-      │
-      ▼
-    Inspector Dashboard
-      │
-      ▼
-    Analytics & Reporting
-
----
-
-# 🏆 Smart India Hackathon
-
-MetroScan is being developed as a prototype for **Smart India Hackathon 2026**.
-
-The project focuses on using software automation, OCR, structured extraction, and explainable rule-based evaluation to improve the initial screening of packaged commodities.
-
----
-
-# 👥 Team
-
-**Project:** MetroScan
-
-**Track:** Legal Metrology / Packaged Commodity Compliance
-
-**Purpose:** Smart India Hackathon 2026 Prototype
-
----
-
-# 📜 Disclaimer
-
-> MetroScan is an AI-assisted decision-support prototype intended for demonstration and innovation purposes.
->
-> The results generated by the system are **not a legally binding determination of compliance**.
->
-> OCR and automated extraction may be incomplete or inaccurate. Compliance results must be independently verified by a qualified inspector against the actual packaged commodity and applicable legislation before any enforcement or legal action.
-
----
-
-# 📌 Project Status
-
-**Current Stage:** Functional SIH Prototype
-
-**Core Pipeline:** Complete
-
-**Compliance Engine:** Prototype
-
-**Production Deployment:** Future Scope
-
----
-
-# 🔎 MetroScan
-
-### Scan → Extract → Evaluate → Verify
-
-Built for faster, clearer and more explainable packaged commodity inspection.
+MetroScan was built as a prototype response to **SIH Problem Statement 26034**: *"Software System to check compliance of Packaged Commodities under Legal Metrology (Packaged Commodities) Rules, 2011 by scanning products, images and labels."* It is intended to demonstrate a credible technical approach — AI-assisted extraction combined with a transparent, deterministic, and explainable rule engine — within a 3–4 day prototyping timeline, not to serve as a complete or production-ready implementation of the full statutory framework.

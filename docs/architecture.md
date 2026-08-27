@@ -101,6 +101,9 @@ metroscan/
 │
 └── README.md
     └── Project documentation
+```
+
+
 All state lives in `app/scanner/page.tsx` (React `useState`); no global
 state manager, no server state. This is a deliberate scope decision for a
 3–4 day prototype.
