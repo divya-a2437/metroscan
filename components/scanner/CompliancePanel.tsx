@@ -236,7 +236,7 @@ export function CompliancePanel({ report, inspection }: CompliancePanelProps) {
         })}
       </ul>
 
-      <div className="px-4 py-3 border-t-2 border-ink bg-ink/[0.03] flex items-start gap-2.5">
+      <div className="px-4 py-3 border-t-2 border-ink bg-ink/3 flex items-start gap-2.5">
         <AlertTriangle className="w-4 h-4 text-ink shrink-0 mt-0.5" />
         <div>
           <div className="text-xs font-semibold text-ink uppercase tracking-wide">

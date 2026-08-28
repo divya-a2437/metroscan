@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="max-w-[1400px] mx-auto px-6 py-16">
+    <div className="max-w-350 mx-auto px-6 py-16">
       <div className="max-w-xl">
         <h1 className="text-2xl font-semibold text-ink mb-2">
           Legal Metrology Compliance Screening

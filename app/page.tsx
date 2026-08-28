@@ -148,7 +148,7 @@ export default function ScannerPage() {
     : "Run OCR";
 
   return (
-    <div className="max-w-[1400px] mx-auto px-6 py-8">
+    <div className="max-w-350 mx-auto px-6 py-8">
       <div className="mb-6">
         <h1 className="text-lg font-semibold text-ink">Product Scanner</h1>
         <p className="text-sm text-ink-muted mt-1">
