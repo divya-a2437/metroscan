@@ -1,16 +1,33 @@
 "use client";
 
-import { DECLARATION_FIELD_ORDER, type ProductDeclaration } from "@/lib/extraction/schema";
+import type { ProductDeclaration } from "@/lib/extraction/schema";
+import { DECLARATION_FIELD_ORDER } from "@/lib/extraction/schema";
 
 interface DeclarationPanelProps {
   declaration: ProductDeclaration;
 }
 
+/** Field grouping purely for presentation — does not change extraction logic or data. */
+const FIELD_GROUPS: Array<{ title: string; keys: Array<keyof ProductDeclaration> }> = [
+  { title: "Product", keys: ["product_name", "generic_name", "net_quantity"] },
+  { title: "Responsible Entity", keys: ["manufacturer", "packer", "importer", "address"] },
+  { title: "Pricing", keys: ["mrp", "unit_sale_price"] },
+  {
+    title: "Dates",
+    keys: ["manufacturing_date", "packing_date", "best_before", "use_by"],
+  },
+  { title: "Consumer Information", keys: ["consumer_care", "country_of_origin"] },
+];
+
+const LABELS: Record<keyof ProductDeclaration, string> = Object.fromEntries(
+  DECLARATION_FIELD_ORDER.map(({ key, label }) => [key, label])
+) as Record<keyof ProductDeclaration, string>;
+
 /**
  * Renders extracted fields only — this panel makes no compliance judgment.
  * "Not detected" simply means the deterministic extractor found no match;
  * it is not a violation finding. That determination belongs to the rule
- * engine, added in a later step.
+ * engine.
  */
 export function DeclarationPanel({ declaration }: DeclarationPanelProps) {
   return (
@@ -21,44 +38,62 @@ export function DeclarationPanel({ declaration }: DeclarationPanelProps) {
         </span>
         <span className="text-xs font-mono text-ink-muted">DETERMINISTIC</span>
       </div>
-      <ul className="divide-y divide-border">
-        {DECLARATION_FIELD_ORDER.map(({ key, label }) => {
-          if (key === "net_quantity") {
-            const field = declaration.net_quantity;
-            const detected = field.value !== null && field.unit !== null;
-            return (
-              <li key={key} className="px-4 py-3">
-                <FieldRow
-                  label={label}
-                  detected={detected}
-                  displayValue={detected ? `${field.value} ${field.unit}` : null}
-                  confidence={field.confidence}
-                  rawText={field.evidence?.rawText ?? null}
-                  sourceImage={field.evidence?.sourceImage ?? null}
-                  sourceRole={field.evidence?.sourceRole ?? null}
-                />
-              </li>
-            );
-          }
 
-          const field = declaration[key];
-          const detected = field.value !== null && field.value !== "";
-          return (
-            <li key={key} className="px-4 py-3">
-              <FieldRow
-                label={label}
-                detected={detected}
-                displayValue={field.value}
-                confidence={field.confidence}
-                rawText={field.evidence?.rawText ?? null}
-                sourceImage={field.evidence?.sourceImage ?? null}
-                sourceRole={field.evidence?.sourceRole ?? null}
-              />
-            </li>
-          );
-        })}
-      </ul>
+      {FIELD_GROUPS.map((group) => (
+        <div key={group.title} className="border-b border-border last:border-b-0">
+          <div className="px-4 pt-3 pb-1 text-[11px] font-semibold text-ink-muted uppercase tracking-wide">
+            {group.title}
+          </div>
+          <ul className="divide-y divide-border">
+            {group.keys.map((key) => (
+              <li key={key} className="px-4 py-3">
+                <FieldRowForKey declaration={declaration} fieldKey={key} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
+  );
+}
+
+function FieldRowForKey({
+  declaration,
+  fieldKey,
+}: {
+  declaration: ProductDeclaration;
+  fieldKey: keyof ProductDeclaration;
+}) {
+  const label = LABELS[fieldKey];
+
+  if (fieldKey === "net_quantity") {
+    const field = declaration.net_quantity;
+    const detected = field.value !== null && field.unit !== null;
+    return (
+      <FieldRow
+        label={label}
+        detected={detected}
+        displayValue={detected ? `${field.value} ${field.unit}` : null}
+        confidence={field.confidence}
+        rawText={field.evidence?.rawText ?? null}
+        sourceImage={field.evidence?.sourceImage ?? null}
+        sourceRole={field.evidence?.sourceRole ?? null}
+      />
+    );
+  }
+
+  const field = declaration[fieldKey];
+  const detected = field.value !== null && field.value !== "";
+  return (
+    <FieldRow
+      label={label}
+      detected={detected}
+      displayValue={field.value}
+      confidence={field.confidence}
+      rawText={field.evidence?.rawText ?? null}
+      sourceImage={field.evidence?.sourceImage ?? null}
+      sourceRole={field.evidence?.sourceRole ?? null}
+    />
   );
 }
 
@@ -107,7 +142,7 @@ function FieldRow({
         </div>
       ) : (
         <div className="text-xs text-ink-muted">
-          No matching text found in submitted images.
+          Not detected — manual verification recommended.
         </div>
       )}
     </div>
