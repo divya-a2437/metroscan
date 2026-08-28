@@ -95,10 +95,12 @@ export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
     lines,
     /(?:address|regd\.?\s*office)\s*[:\-]?\s*(.+)/i
   );
-  // Fallback: a line containing a 6-digit Indian PIN code is very likely
-  // part of the address block, even without an explicit "Address" label.
+  // Fallback: a 6-digit Indian PIN code preceded by a comma is a strong
+  // address signal (Indian addresses are typically comma-segmented, e.g.
+  // "...Road, Industrial Area, 400001"). Requiring the comma avoids
+  // wrongly capturing a standalone batch/lot/barcode number as an address.
   if (!declaration.address.value) {
-    declaration.address = fieldFromPattern(lines, /(.+\b\d{6}\b.*)/);
+    declaration.address = fieldFromPattern(lines, /(.*,.*\b\d{6}\b.*)/);
   }
 
   // --- Net Quantity -----------------------------------------------------
@@ -195,10 +197,43 @@ export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
   );
 
   // --- Product Name (weakest heuristic — prefer the front image) ---------
+  // Exclude any line already claimed as evidence by another field, so a
+  // line like "MRP Rs. 45.00" can never be mistaken for the product name
+  // just because it happened to be the first non-numeric line encountered.
+  const usedRawTexts = new Set<string>(
+    [
+      declaration.manufacturer.evidence,
+      declaration.packer.evidence,
+      declaration.importer.evidence,
+      declaration.address.evidence,
+      declaration.net_quantity.evidence,
+      declaration.mrp.evidence,
+      declaration.unit_sale_price.evidence,
+      declaration.manufacturing_date.evidence,
+      declaration.packing_date.evidence,
+      declaration.best_before.evidence,
+      declaration.use_by.evidence,
+      declaration.country_of_origin.evidence,
+      declaration.consumer_care.evidence,
+      declaration.generic_name.evidence,
+    ]
+      .filter((e): e is FieldEvidence => e !== null)
+      .map((e) => e.rawText)
+  );
+
+  // Extra safety net: skip lines that look like a currency amount even if
+  // MRP parsing failed for some other reason — these should never be
+  // mistaken for a product name.
+  const looksLikeCurrencyOrCode = /₹|\brs\.?\s*\d|\bmrp\b/i;
+
   const frontLines = lines.filter((l) => l.chunk.role === ("front" as ImageRole));
   const candidateLines = frontLines.length > 0 ? frontLines : lines;
   const productNameLine = candidateLines.find(
-    (l) => l.text.length >= 3 && !/^\d+$/.test(l.text)
+    (l) =>
+      l.text.length >= 3 &&
+      !/^\d+$/.test(l.text) &&
+      !usedRawTexts.has(l.text) &&
+      !looksLikeCurrencyOrCode.test(l.text)
   );
   if (productNameLine) {
     declaration.product_name = {
