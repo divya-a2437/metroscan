@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, XCircle, AlertTriangle, MinusCircle, ClipboardCopy, Check } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  MinusCircle,
+  ClipboardCopy,
+  Check,
+  ChevronDown,
+} from "lucide-react";
 import type { ComplianceReport, RuleStatus } from "@/lib/rules/types";
 import { buildInspectionSummaryText, type InspectionMeta } from "@/lib/inspection";
 
@@ -27,21 +35,35 @@ const RULE_STATUS_META: Record<RuleStatus, RuleStatusMeta> = {
   NOT_CHECKED: { label: "NOT CHECKED", color: "text-status-unknown", icon: MinusCircle },
 };
 
+/** Left-border accent used to make FAIL/REVIEW rows visually heavier than PASS/NOT_CHECKED. */
+const ATTENTION_BORDER: Record<RuleStatus, string> = {
+  PASS: "border-l-transparent",
+  FAIL: "border-l-status-fail",
+  REVIEW: "border-l-status-review",
+  NOT_CHECKED: "border-l-transparent",
+};
+
 export function CompliancePanel({ report, inspection }: CompliancePanelProps) {
   const overall = OVERALL_META[report.overallStatus];
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
 
   const handleCopy = async () => {
     const text = buildInspectionSummaryText(inspection, report);
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
+      setCopyError(false);
       setTimeout(() => setCopied(false), 1800);
     } catch {
-      // Clipboard API can fail (permissions, insecure context) — fail
-      // silently rather than breaking the rest of the panel.
+      setCopyError(true);
+      setTimeout(() => setCopyError(false), 3000);
     }
   };
+
+  const attentionResults = report.results.filter(
+    (r) => r.status === "FAIL" || r.status === "REVIEW"
+  );
 
   return (
     <div className="border border-border rounded bg-surface">
@@ -83,6 +105,12 @@ export function CompliancePanel({ report, inspection }: CompliancePanelProps) {
           </button>
         </div>
 
+        {copyError && (
+          <div className="text-xs font-mono text-status-fail mb-3">
+            Copy failed — clipboard access unavailable in this browser/context.
+          </div>
+        )}
+
         <div className="flex items-center justify-between">
           <div>
             <div className="text-xs text-ink-muted uppercase tracking-wide mb-0.5">Overall</div>
@@ -97,57 +125,130 @@ export function CompliancePanel({ report, inspection }: CompliancePanelProps) {
         </div>
       </div>
 
+      {/* Issues Requiring Attention */}
+      <div className="border-b border-border">
+        <div className="px-4 py-2 flex items-center justify-between">
+          <span className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+            Issues Requiring Attention
+          </span>
+          {attentionResults.length > 0 && (
+            <span className="text-xs font-mono text-status-fail">
+              {attentionResults.length}
+            </span>
+          )}
+        </div>
+
+        {attentionResults.length === 0 ? (
+          <div className="px-4 pb-3 flex items-center gap-2 text-xs text-status-pass font-medium">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            No issues requiring attention detected.
+          </div>
+        ) : (
+          <ul className="px-4 pb-3 space-y-1.5">
+            {attentionResults.map((result) => {
+              const meta = RULE_STATUS_META[result.status];
+              const Icon = meta.icon;
+              return (
+                <li
+                  key={result.ruleId}
+                  className={`flex items-start gap-2 text-xs rounded px-2 py-1.5 ${
+                    result.status === "FAIL"
+                      ? "bg-status-fail/5"
+                      : "bg-status-review/5"
+                  }`}
+                >
+                  <Icon className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${meta.color}`} />
+                  <div className="min-w-0">
+                    <span className="font-medium text-ink">{result.title}</span>
+                    <span className={`ml-2 font-mono uppercase text-[10px] ${meta.color}`}>
+                      {meta.label}
+                    </span>
+                    <p className="text-ink-muted mt-0.5 leading-snug">{result.message}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Full rule list — expandable per rule, FAIL/REVIEW open by default */}
       <ul className="divide-y divide-border">
         {report.results.map((result) => {
           const meta = RULE_STATUS_META[result.status];
           const Icon = meta.icon;
+          const isAttention = result.status === "FAIL" || result.status === "REVIEW";
           const hasEvidence =
             result.evidence !== null ||
             (result.detectedValue !== undefined && result.detectedValue !== null) ||
             (result.confidence !== undefined && result.confidence !== null);
 
           return (
-            <li key={result.ruleId} className="px-4 py-3 space-y-1.5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Icon className={`w-4 h-4 shrink-0 ${meta.color}`} />
-                  <span className="text-sm text-ink font-medium truncate">{result.title}</span>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs font-mono text-ink-muted">{result.ruleId}</span>
-                  <span className={`text-xs font-mono uppercase ${meta.color}`}>
-                    {meta.label}
-                  </span>
-                </div>
-              </div>
+            <li
+              key={result.ruleId}
+              className={`border-l-4 ${ATTENTION_BORDER[result.status]}`}
+            >
+              <details open={isAttention} className="group">
+                <summary className="px-4 py-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden flex items-center justify-between gap-3 hover:bg-bg/60 transition-colors">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Icon className={`w-4 h-4 shrink-0 ${meta.color}`} />
+                    <span className="text-sm text-ink font-medium truncate">
+                      {result.title}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-mono text-ink-muted">{result.ruleId}</span>
+                    <span className={`text-xs font-mono uppercase ${meta.color}`}>
+                      {meta.label}
+                    </span>
+                    <ChevronDown className="w-3.5 h-3.5 text-ink-muted transition-transform group-open:rotate-180" />
+                  </div>
+                </summary>
 
-              <p className="text-xs text-ink-muted leading-relaxed">{result.message}</p>
+                <div className="px-4 pb-3 space-y-1.5">
+                  <p className="text-xs text-ink-muted leading-relaxed">{result.message}</p>
 
-              {hasEvidence && (
-                <div className="bg-bg border border-border rounded px-3 py-2 space-y-1">
-                  {result.detectedValue !== undefined && result.detectedValue !== null && (
-                    <div className="text-xs text-ink">
-                      <span className="text-ink-muted">Detected value: </span>
-                      <span className="font-mono">{result.detectedValue}</span>
-                    </div>
-                  )}
-                  {result.evidence && (
-                    <div className="text-xs font-mono text-ink-muted truncate">
-                      &ldquo;{result.evidence.rawText}&rdquo; — {result.evidence.sourceImage} (
-                      {result.evidence.sourceRole.toUpperCase()})
-                    </div>
-                  )}
-                  {result.confidence !== undefined && result.confidence !== null && (
-                    <div className="text-xs font-mono text-ink-muted">
-                      OCR confidence: {result.confidence.toFixed(0)}%
+                  {hasEvidence && (
+                    <div className="bg-bg border border-border rounded px-3 py-2 space-y-1">
+                      {result.detectedValue !== undefined && result.detectedValue !== null && (
+                        <div className="text-xs text-ink">
+                          <span className="text-ink-muted">Detected value: </span>
+                          <span className="font-mono">{result.detectedValue}</span>
+                        </div>
+                      )}
+                      {result.evidence && (
+                        <div className="text-xs font-mono text-ink-muted truncate">
+                          &ldquo;{result.evidence.rawText}&rdquo; — {result.evidence.sourceImage} (
+                          {result.evidence.sourceRole.toUpperCase()})
+                        </div>
+                      )}
+                      {result.confidence !== undefined && result.confidence !== null && (
+                        <div className="text-xs font-mono text-ink-muted">
+                          OCR confidence: {result.confidence.toFixed(0)}%
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
+              </details>
             </li>
           );
         })}
       </ul>
+
+      <div className="px-4 py-3 border-t-2 border-ink bg-ink/[0.03] flex items-start gap-2.5">
+        <AlertTriangle className="w-4 h-4 text-ink shrink-0 mt-0.5" />
+        <div>
+          <div className="text-xs font-semibold text-ink uppercase tracking-wide">
+            Automated Screening Complete — Human Verification Required
+          </div>
+          <p className="text-xs text-ink-muted mt-1 leading-relaxed">
+            MetroScan is a decision-support tool. This screening result must
+            be verified by a qualified inspector before any enforcement,
+            reporting, or legal action.
+          </p>
+        </div>
+      </div>
 
       <div className="px-4 py-2 border-t border-border text-xs text-ink-muted leading-relaxed">
         AI-assisted decision-support prototype. This assessment is not a
