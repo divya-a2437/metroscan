@@ -37,67 +37,30 @@ core/language data on first use.
 ## Component Architecture
 ```text
 metroscan/
-│
 ├── app/
-│   ├── page.tsx
-│   │   └── Landing page ("Start Scan")
-│   │
-│   ├── layout.tsx
-│   │   └── Root layout and font configuration
-│   │
-│   ├── globals.css
-│   │   └── Tailwind v4 @theme tokens (colors and fonts)
-│   │
-│   └── scanner/
-│       └── page.tsx
-│           └── Complete scanner workflow and page state
-│
+│ ├── page.tsx — landing page ("Start Scan")
+│ ├── layout.tsx — root layout, fonts, <Header/>
+│ ├── globals.css — Tailwind v4 @theme tokens (color, font)
+│ └── scanner/page.tsx — the entire scanner workflow + page state
 ├── components/
-│   │
-│   ├── layout/
-│   │   └── Header.tsx
-│   │       └── Top navigation bar
-│   │
-│   └── scanner/
-│       ├── ImageUploader.tsx
-│       │   └── Image upload, preview, role assignment and removal
-│       │
-│       ├── OCRResults.tsx
-│       │   └── Per-image OCR status, extracted text and confidence
-│       │
-│       ├── DeclarationPanel.tsx
-│       │   └── Extracted ProductDeclaration display
-│       │
-│       └── CompliancePanel.tsx
-│           └── Compliance report, evidence and inspection summary
-│
-├── lib/
-│   │
-│   ├── ocr.ts
-│   │   └── Tesseract worker lifecycle and recognizeImage()
-│   │
-│   ├── extraction/
-│   │   ├── schema.ts
-│   │   │   └── ProductDeclaration, FieldEvidence and OcrChunk types
-│   │   │
-│   │   ├── normalize.ts
-│   │   │   └── Unit and number normalization helpers
-│   │   │
-│   │   └── deterministicExtractor.ts
-│   │       └── Regex/keyword-based extraction (no AI)
-│   │
-│   ├── rules/
-│   │   ├── types.ts
-│   │   │   └── RuleResult and ComplianceReport types
-│   │   │
-│   │   ├── packagedCommodityRules.ts
-│   │   │   └── Seven prototype compliance rules
-│   │   │
-│   │   └── evaluateCompliance.ts
-│   │       └── Executes rules and aggregates the compliance summary
-│   │
-│   └── inspection.ts
-│       └── Inspection ID generation and clipboard summary builder
+│ ├── layout/Header.tsx — top nav bar
+│ └── scanner/
+│ ├── ImageUploader.tsx — upload, preview, role assignment, remove
+│ ├── OCRResults.tsx — per-image OCR status/text/confidence
+│ ├── DeclarationPanel.tsx — extracted ProductDeclaration display
+│ ├── CompliancePanel.tsx — compliance report, evidence, summary
+│ └── PipelineStatus.tsx — 5-stage inspection pipeline indicator (Capture/OCR/Extract/Screen/Verify), derived from real app state
+└── lib/
+├── ocr.ts — Tesseract worker lifecycle + recognizeImage()
+├── extraction/
+│ ├── schema.ts — ProductDeclaration, FieldEvidence, OcrChunk types
+│ ├── normalize.ts — unit/number normalization helpers
+│ └── deterministicExtractor.ts — regex/keyword extraction (no AI)
+├── rules/
+│ ├── types.ts — RuleResult, ComplianceReport types
+│ ├── packagedCommodityRules.ts — the 7 prototype rules
+│ └── evaluateCompliance.ts — runs all rules, aggregates summary
+└── inspection.ts — inspection ID generation, clipboard text builder
 │
 └── README.md
     └── Project documentation
