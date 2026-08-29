@@ -90,6 +90,19 @@ function flattenLines(page: Page): OcrLineSpatial[] {
 const MAX_DIMENSION = 2000;
 
 /**
+ * If preprocessed-image OCR confidence falls below this, we also try OCR
+ * on the original, unprocessed file and keep whichever result scored
+ * higher. This exists because grayscale + global contrast stretching can
+ * help plain black-on-white text but can hurt colorful branded packaging
+ * (e.g. similar-luminance color combinations that lose contrast when
+ * flattened to grayscale) — there's no way to know in advance which case
+ * applies for a given photo, so this is a safety net rather than a fix
+ * targeted at one specific image type. This is a judgment-call threshold,
+ * not a scientifically derived cutoff.
+ */
+const LOW_CONFIDENCE_THRESHOLD = 60;
+
+/**
  * Prepares an uploaded image for OCR using only the browser's native
  * Canvas API — no new dependency. Two adjustments are made:
  *
@@ -156,35 +169,14 @@ async function preprocessImage(file: File): Promise<HTMLCanvasElement> {
   return canvas;
 }
 
-/**
- * Runs OCR on a single image file using the shared worker. The image is
- * preprocessed first (downscale + grayscale + contrast stretch); if that
- * fails for any reason, OCR runs on the original file instead. Callers are
- * expected to run images sequentially (the scanner page does this) so a
- * single worker handles one recognition job at a time.
- */
-export async function recognizeImage(file: File): Promise<OcrOutcome> {
-  const worker = await getOcrWorker();
-
-  let input: File | HTMLCanvasElement = file;
-  try {
-    input = await preprocessImage(file);
-  } catch {
-    input = file;
-  }
-
-  // Request block-level output in addition to the default text/confidence.
-  // Blocks are NOT returned by default — Tesseract.js only computes/returns
-  // them when explicitly asked for via the third (output formats) argument.
+/** Runs a single Tesseract recognition pass and flattens its block output. */
+async function runOcr(worker: Worker, input: File | HTMLCanvasElement): Promise<OcrOutcome> {
   const { data } = await worker.recognize(input, {}, { blocks: true });
 
   let lines: OcrLineSpatial[] | undefined;
   try {
     lines = flattenLines(data);
   } catch {
-    // If block parsing fails for any reason, spatial data is simply
-    // unavailable for this image — text/confidence are unaffected, and
-    // extraction already handles a missing `lines` array as a normal case.
     lines = undefined;
   }
 
@@ -193,4 +185,39 @@ export async function recognizeImage(file: File): Promise<OcrOutcome> {
     confidence: data.confidence,
     lines,
   };
+}
+
+/**
+ * Runs OCR on a single image file using the shared worker. First tries the
+ * preprocessed (downscaled/grayscale/contrast-stretched) version; if that
+ * comes back below LOW_CONFIDENCE_THRESHOLD, also tries the original,
+ * unprocessed file and keeps whichever single result scored higher. The
+ * two results are never merged/concatenated — only one is kept, to avoid
+ * combining two possibly-garbled outputs into something worse than
+ * either. Callers are expected to run images sequentially (the scanner
+ * page does this) so a single worker handles one recognition job at a
+ * time.
+ */
+export async function recognizeImage(file: File): Promise<OcrOutcome> {
+  const worker = await getOcrWorker();
+
+  let preprocessed: File | HTMLCanvasElement = file;
+  try {
+    preprocessed = await preprocessImage(file);
+  } catch {
+    preprocessed = file;
+  }
+
+  const primaryResult = await runOcr(worker, preprocessed);
+
+  // Only attempt a fallback pass if preprocessing actually changed the
+  // input (i.e. it didn't already fail and fall back to `file` above) —
+  // otherwise we'd just be running OCR on the same input twice.
+  const preprocessingSucceeded = preprocessed !== file;
+  if (!preprocessingSucceeded || primaryResult.confidence >= LOW_CONFIDENCE_THRESHOLD) {
+    return primaryResult;
+  }
+
+  const fallbackResult = await runOcr(worker, file);
+  return fallbackResult.confidence > primaryResult.confidence ? fallbackResult : primaryResult;
 }
