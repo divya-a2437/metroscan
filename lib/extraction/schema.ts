@@ -1,5 +1,30 @@
 import type { ImageRole } from "@/components/scanner/ImageUploader";
 
+/** Pixel bounding box, as reported directly by Tesseract (x0,y0 = top-left, x1,y1 = bottom-right). */
+export interface BBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/**
+ * Minimal, serializable spatial representation of a single OCR line —
+ * deliberately not the full Tesseract block/paragraph/word tree, which is
+ * large and mostly unused. `rowHeight` is Tesseract's own row-height
+ * measurement in pixels; it is a *relative* signal only (useful for
+ * comparing text sizes against each other on the same image) and is NOT
+ * an absolute physical font size — no DPI/scale reference exists to
+ * convert pixels to millimeters, so no such claim is made anywhere this
+ * type is used.
+ */
+export interface OcrLineSpatial {
+  text: string;
+  confidence: number;
+  bbox: BBox;
+  rowHeight: number | null;
+}
+
 /**
  * Points a declared field back to exactly where it came from, so the UI
  * (and later, evidence/bounding-box highlighting in Step 7) can show the
@@ -12,6 +37,13 @@ export interface FieldEvidence {
   sourceImage: string;
   /** Declared role of the source image (front/back/side/top/bottom/unspecified). */
   sourceRole: ImageRole;
+  /**
+   * Optional spatial data for the matched line, when available. Absent for
+   * older/simplified callers or when line-level spatial data wasn't
+   * captured for this chunk. Purely additive — no existing consumer reads
+   * this field, so its absence never breaks anything.
+   */
+  spatial?: OcrLineSpatial | null;
 }
 
 /**
@@ -81,6 +113,13 @@ export interface OcrChunk {
   role: ImageRole;
   text: string;
   confidence: number;
+  /**
+   * Optional per-line spatial data, populated when the OCR layer requests
+   * Tesseract's block output. Absent (undefined) is a fully valid state —
+   * extraction falls back to text-only line splitting exactly as before
+   * when this isn't present, so existing behavior is unchanged either way.
+   */
+  lines?: OcrLineSpatial[];
 }
 
 function emptyField(): ExtractedField {
