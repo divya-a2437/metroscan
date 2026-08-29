@@ -128,9 +128,19 @@ export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
   }
 
   // --- MRP -----------------------------------------------------------------
+  // The gap between "MRP" and the number is intentionally lazy ({0,15}?
+  // rather than greedy {0,15}): a greedy gap would swallow a "-" sitting
+  // directly before the digits as "junk" (since "-" is neither a digit nor
+  // ₹), silently turning "MRP Rs. -1" into "1". A lazy gap tries the
+  // shortest possible skip first, so when a minus sign is immediately
+  // adjacent to the digits, the capture group gets first claim on it. The
+  // "-?" is attached directly to the digit class with nothing in between,
+  // so a hyphen used as a decorative separator (e.g. "MRP - 45.00", with a
+  // space before the number) is never mistaken for a sign — only a hyphen
+  // touching the digits counts.
   const mrpMatch = findFirstMatch(
     lines,
-    /m\.?r\.?p\.?[^\d₹]{0,15}(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i
+    /m\.?r\.?p\.?[^\d₹]{0,15}?(?:rs\.?|inr|₹)?\s*(-?[\d,]+(?:\.\d{1,2})?)/i
   );
   if (mrpMatch) {
     const value = parseAmount(mrpMatch.match[1]);
