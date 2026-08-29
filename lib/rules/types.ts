@@ -15,6 +15,13 @@ export type RuleStatus = "PASS" | "FAIL" | "REVIEW" | "NOT_CHECKED";
 
 export type RuleSeverity = "HIGH" | "MEDIUM" | "LOW";
 
+/**
+ * Broad category of what a rule is checking. Optional and purely
+ * informational — added so the UI can group/filter rules later without
+ * any change to how PASS/FAIL/REVIEW/NOT_CHECKED is decided.
+ */
+export type RuleCategory = "DECLARATION" | "VALUE" | "READABILITY" | "PLACEMENT" | "FORMAT";
+
 export interface RuleResult {
   ruleId: string;
   title: string;
@@ -32,6 +39,8 @@ export interface RuleResult {
   detectedValue?: string | null;
   /** OCR confidence (0–100) of the source image the value came from. */
   confidence?: number | null;
+  /** Broad category of this check — optional, additive, informational only. */
+  category?: RuleCategory;
 }
 
 export type OverallStatus = "PASS" | "FAIL" | "REVIEW";
