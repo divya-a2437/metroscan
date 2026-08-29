@@ -1,4 +1,5 @@
-import { createWorker, PSM, type Worker } from "tesseract.js";
+import { createWorker, PSM, type Worker, type Page } from "tesseract.js";
+import type { BBox, OcrLineSpatial } from "@/lib/extraction/schema";
 
 /**
  * Module-level singleton so we never spin up more than one Tesseract worker
@@ -42,6 +43,47 @@ export async function terminateOcrWorker(): Promise<void> {
 export interface OcrOutcome {
   text: string;
   confidence: number;
+  /**
+   * Optional per-line spatial data (bbox + row height), present only when
+   * Tesseract's block output was successfully requested and parsed. This
+   * is additive — callers that only read text/confidence are unaffected.
+   */
+  lines?: OcrLineSpatial[];
+}
+
+/**
+ * Flattens Tesseract's block -> paragraph -> line tree into a minimal,
+ * serializable list of line-level spatial records. Intentionally discards
+ * the much larger word/symbol-level detail (choices, font_name, etc.) —
+ * line-level bbox + rowHeight is sufficient for what this data will be
+ * used for (relative readability comparison, coarse placement evidence),
+ * and keeping OcrChunk small matters since it's held in memory per image
+ * for the duration of a run.
+ */
+function flattenLines(page: Page): OcrLineSpatial[] {
+  const lines: OcrLineSpatial[] = [];
+  const blocks = page.blocks ?? [];
+
+  for (const block of blocks) {
+    for (const paragraph of block.paragraphs) {
+      for (const line of paragraph.lines) {
+        const bbox: BBox = {
+          x0: line.bbox.x0,
+          y0: line.bbox.y0,
+          x1: line.bbox.x1,
+          y1: line.bbox.y1,
+        };
+        lines.push({
+          text: line.text.trim(),
+          confidence: line.confidence,
+          bbox,
+          rowHeight: line.rowAttributes?.rowHeight ?? null,
+        });
+      }
+    }
+  }
+
+  return lines;
 }
 
 /** Longest-side cap, in pixels, applied before OCR. */
@@ -131,9 +173,24 @@ export async function recognizeImage(file: File): Promise<OcrOutcome> {
     input = file;
   }
 
-  const { data } = await worker.recognize(input);
+  // Request block-level output in addition to the default text/confidence.
+  // Blocks are NOT returned by default — Tesseract.js only computes/returns
+  // them when explicitly asked for via the third (output formats) argument.
+  const { data } = await worker.recognize(input, {}, { blocks: true });
+
+  let lines: OcrLineSpatial[] | undefined;
+  try {
+    lines = flattenLines(data);
+  } catch {
+    // If block parsing fails for any reason, spatial data is simply
+    // unavailable for this image — text/confidence are unaffected, and
+    // extraction already handles a missing `lines` array as a normal case.
+    lines = undefined;
+  }
+
   return {
     text: data.text.trim(),
     confidence: data.confidence,
+    lines,
   };
 }
