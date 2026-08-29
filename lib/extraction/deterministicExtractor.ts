@@ -36,10 +36,18 @@ function toLines(chunks: OcrChunk[]): Line[] {
 }
 
 function evidenceFor(line: Line, rawText: string): FieldEvidence {
+  // Deterministic exact-text lookup only — the extractor's own line
+  // splitting (chunk.text.split on newlines) and Tesseract's line-level
+  // spatial records (chunk.lines) both come from the same underlying OCR
+  // pass, so an exact trimmed-text match reliably pairs them. If no exact
+  // match is found (chunk.lines absent, or any text discrepancy), spatial
+  // data is simply omitted — no fuzzy/approximate matching is attempted.
+  const spatial = line.chunk.lines?.find((l) => l.text === line.text) ?? null;
   return {
     rawText,
     sourceImage: line.chunk.fileName,
     sourceRole: line.chunk.role,
+    spatial,
   };
 }
 
