@@ -1,4 +1,4 @@
-import { createWorker, type Worker } from "tesseract.js";
+import { createWorker, PSM, type Worker } from "tesseract.js";
 
 /**
  * Module-level singleton so we never spin up more than one Tesseract worker
@@ -9,7 +9,16 @@ let workerPromise: Promise<Worker> | null = null;
 
 async function getOcrWorker(): Promise<Worker> {
   if (!workerPromise) {
-    workerPromise = createWorker("eng");
+    workerPromise = createWorker("eng").then(async (worker) => {
+      // Default page segmentation (AUTO) assumes a full page of continuous
+      // text and can scramble reading order when a package label mixes
+      // short text blocks with logos/graphics. SPARSE_TEXT is designed for
+      // exactly this case — scattered text blocks in no fixed layout — and
+      // is a much better match for photographed packaging than a document
+      // scan. Set once per worker, not per recognition call.
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+      return worker;
+    });
   }
   return workerPromise;
 }
@@ -35,14 +44,94 @@ export interface OcrOutcome {
   confidence: number;
 }
 
+/** Longest-side cap, in pixels, applied before OCR. */
+const MAX_DIMENSION = 2000;
+
 /**
- * Runs OCR on a single image file using the shared worker. Callers are
+ * Prepares an uploaded image for OCR using only the browser's native
+ * Canvas API — no new dependency. Two adjustments are made:
+ *
+ * 1. Downscale: modern phone photos are often 3000-4000px+ on the long
+ *    side. That's far more resolution than OCR needs and mainly costs
+ *    processing time (relevant for a live demo), so anything above
+ *    MAX_DIMENSION is scaled down proportionally.
+ * 2. Grayscale + contrast stretch: converts to grayscale and rescales the
+ *    brightness range so the darkest pixel becomes black and the lightest
+ *    becomes white. This targets low/uneven contrast from indoor lighting
+ *    and glossy packaging, a common real-world cause of misrecognition.
+ *
+ * This never touches or discards OCR text — it only reshapes pixels
+ * before recognition. If preprocessing fails for any reason (unsupported
+ * image format, Canvas unavailable), the caller falls back to running OCR
+ * on the original file.
+ */
+async function preprocessImage(file: File): Promise<HTMLCanvasElement> {
+  const bitmap = await createImageBitmap(file);
+
+  let { width, height } = bitmap;
+  const longestSide = Math.max(width, height);
+  if (longestSide > MAX_DIMENSION) {
+    const scale = MAX_DIMENSION / longestSide;
+    width = Math.round(width * scale);
+    height = Math.round(height * scale);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Canvas 2D context unavailable");
+  }
+
+  ctx.drawImage(bitmap, 0, 0, width, height);
+
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const { data } = imageData;
+
+  // First pass: grayscale conversion (standard luminance weighting) while
+  // tracking the min/max brightness seen.
+  const gray = new Float32Array(data.length / 4);
+  let min = 255;
+  let max = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const g = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    gray[i / 4] = g;
+    if (g < min) min = g;
+    if (g > max) max = g;
+  }
+
+  // Second pass: stretch the brightness range to fill 0-255. Guard against
+  // a flat/blank image (min === max) to avoid dividing by zero.
+  const range = max - min || 1;
+  for (let i = 0; i < data.length; i += 4) {
+    const stretched = ((gray[i / 4] - min) / range) * 255;
+    data[i] = data[i + 1] = data[i + 2] = stretched;
+    // Alpha channel (data[i + 3]) is left unchanged.
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+/**
+ * Runs OCR on a single image file using the shared worker. The image is
+ * preprocessed first (downscale + grayscale + contrast stretch); if that
+ * fails for any reason, OCR runs on the original file instead. Callers are
  * expected to run images sequentially (the scanner page does this) so a
  * single worker handles one recognition job at a time.
  */
 export async function recognizeImage(file: File): Promise<OcrOutcome> {
   const worker = await getOcrWorker();
-  const { data } = await worker.recognize(file);
+
+  let input: File | HTMLCanvasElement = file;
+  try {
+    input = await preprocessImage(file);
+  } catch {
+    input = file;
+  }
+
+  const { data } = await worker.recognize(input);
   return {
     text: data.text.trim(),
     confidence: data.confidence,
