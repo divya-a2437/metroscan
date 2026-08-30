@@ -77,6 +77,80 @@ function fieldFromPattern(lines: Line[], pattern: RegExp, group = 1): ExtractedF
 
 const DATE_PATTERN = "(\\d{1,2}[\\/\\-.]\\d{1,2}[\\/\\-.]\\d{2,4}|[A-Za-z]{3,9}\\s?\\d{4})";
 
+/**
+ * Generic packaging marketing/claim vocabulary used only to DEPRIORITIZE
+ * candidate lines when ranking product-name candidates — never to identify
+ * or invent a product name. Deliberately brand-agnostic: no product or
+ * company names appear here, only common claim/nutrition-panel wording
+ * found across many packaged commodities.
+ */
+const MARKETING_OR_NUTRITION_KEYWORDS = [
+  "no", "free", "real", "natural", "artificial", "source", "sources",
+  "color", "colors", "colour", "colours", "flavor", "flavors", "flavour",
+  "flavours", "gluten", "organic", "trans fat", "cholesterol",
+  "preservative", "preservatives", "healthy", "vitamin", "ingredient",
+  "ingredients", "made with", "contains", "nutrition", "facts", "serving",
+  "calories", "sodium", "protein", "fiber", "sugar", "fat", "carbohydrate",
+  "carbohydrates",
+];
+
+/** Counts how many marketing/nutrition keywords appear as whole words in `text`. */
+function marketingKeywordHitCount(text: string): number {
+  const lower = text.toLowerCase();
+  let hits = 0;
+  for (const keyword of MARKETING_OR_NUTRITION_KEYWORDS) {
+    const escaped = keyword.replace(/\s+/g, "\\s+");
+    const pattern = new RegExp(`\\b${escaped}\\b`, "i");
+    if (pattern.test(lower)) hits++;
+  }
+  return hits;
+}
+
+/**
+ * Scores a candidate line for how plausible it is as a product/brand name.
+ * Returns null for lines that are hard-excluded (mostly non-alphabetic —
+ * i.e. OCR noise, codes, or bare numbers/symbols like "193!"). This is a
+ * ranking heuristic only: it never corrects OCR text or invents a value —
+ * it only decides which already-present OCR line is the least-bad
+ * candidate among what was actually detected.
+ */
+function scoreProductNameCandidate(line: Line): number | null {
+  const text = line.text;
+  const letterCount = (text.match(/[A-Za-z]/g) ?? []).length;
+  const alphabeticRatio = text.length > 0 ? letterCount / text.length : 0;
+
+  // Hard exclusion: mostly non-alphabetic lines are never a plausible
+  // product/brand name (garbled fragments, codes, bare numbers/symbols).
+  if (alphabeticRatio < 0.6) return null;
+
+  let score = 100;
+
+  // Penalize marketing-claim / nutrition-panel vocabulary heavily — these
+  // are common on packaging but are claims/facts, not the product name.
+  score -= marketingKeywordHitCount(text) * 40;
+
+  // Smaller continuous penalty for partial noise even above the hard cutoff.
+  score -= (1 - alphabeticRatio) * 20;
+
+  // Percentage signs are a strong signal of a nutrition/claim line.
+  if (/%/.test(text)) score -= 30;
+
+  // Mild length preference: brand/flavor names are usually short; long
+  // lines are more likely full marketing sentences.
+  if (text.length > 25) score -= 15;
+  else if (text.length <= 15) score += 10;
+
+  // Reward visual prominence when spatial data is available — bigger text
+  // is more likely to be the brand/product name than fine print. Capped so
+  // one very large line can't completely dominate the ranking on its own.
+  const spatialMatch = line.chunk.lines?.find((l) => l.text === text);
+  if (spatialMatch?.rowHeight != null) {
+    score += Math.min(spatialMatch.rowHeight, 60) * 0.5;
+  }
+
+  return score;
+}
+
 export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
   const declaration = emptyDeclaration();
   if (chunks.length === 0) return declaration;
@@ -113,9 +187,7 @@ export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
 
   // --- Net Quantity -----------------------------------------------------
   // The optional "\.?" after the abbreviation group handles labels that
-  // punctuate the abbreviation (e.g. "Net Wt. 52 g") — previously the
-  // period immediately after "Wt" was not accounted for by the separator
-  // section of the pattern, causing the match to fail entirely.
+  // punctuate the abbreviation (e.g. "Net Wt. 52 g").
   const netQtyMatch = findFirstMatch(
     lines,
     /(?:net\s*(?:qty|quantity|wt|weight)?\.?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|grams?|ml|l|lt|ltr|litres?|liters?)\b/i
@@ -132,8 +204,8 @@ export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
   }
 
   // --- MRP -----------------------------------------------------------------
-  // Keyword alternation now accepts either the abbreviated "MRP"/"M.R.P."
-  // form or the fully spelled-out "Maximum Retail Price" form.
+  // Keyword alternation accepts either the abbreviated "MRP"/"M.R.P." form
+  // or the fully spelled-out "Maximum Retail Price" form.
   //
   // The gap between the keyword and the number is intentionally lazy
   // ({0,15}? rather than greedy {0,15}): a greedy gap would swallow a "-"
@@ -224,7 +296,7 @@ export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
   // --- Product Name (weakest heuristic — prefer the front image) ---------
   // Exclude any line already claimed as evidence by another field, so a
   // line like "MRP Rs. 45.00" can never be mistaken for the product name
-  // just because it happened to be the first non-numeric line encountered.
+  // just because it happened to be a qualifying line.
   const usedRawTexts = new Set<string>(
     [
       declaration.manufacturer.evidence,
@@ -253,13 +325,26 @@ export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
 
   const frontLines = lines.filter((l) => l.chunk.role === ("front" as ImageRole));
   const candidateLines = frontLines.length > 0 ? frontLines : lines;
-  const productNameLine = candidateLines.find(
+
+  const qualifyingLines = candidateLines.filter(
     (l) =>
       l.text.length >= 3 &&
       !/^\d+$/.test(l.text) &&
       !usedRawTexts.has(l.text) &&
       !looksLikeCurrencyOrCode.test(l.text)
   );
+
+  // Rank ALL qualifying lines rather than taking the first one. This is
+  // still fully deterministic (same inputs always produce the same
+  // ranking and the same winner) and never invents text that isn't
+  // present in the OCR output — it only chooses among what OCR actually
+  // detected.
+  const scoredCandidates = qualifyingLines
+    .map((line) => ({ line, score: scoreProductNameCandidate(line) }))
+    .filter((c): c is { line: Line; score: number } => c.score !== null)
+    .sort((a, b) => b.score - a.score);
+
+  const productNameLine = scoredCandidates[0]?.line;
   if (productNameLine) {
     declaration.product_name = {
       value: productNameLine.text,
