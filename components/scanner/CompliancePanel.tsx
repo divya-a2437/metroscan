@@ -9,14 +9,23 @@ import {
   ClipboardCopy,
   Check,
   ChevronDown,
+  Images,
 } from "lucide-react";
 import type { ComplianceReport, RuleStatus } from "@/lib/rules/types";
 import { buildInspectionSummaryText, type InspectionMeta } from "@/lib/inspection";
+import type { CoverageAssessment, CoverageState } from "@/lib/rules/coverageAssessment";
 
 interface CompliancePanelProps {
   report: ComplianceReport;
   inspection: InspectionMeta;
+  coverage: CoverageAssessment | null;
 }
+
+const COVERAGE_META: Record<CoverageState, { label: string; color: string; bg: string }> = {
+  ADEQUATE: { label: "ADEQUATE COVERAGE", color: "text-status-pass", bg: "bg-status-pass/5" },
+  LIMITED: { label: "LIMITED COVERAGE", color: "text-status-review", bg: "bg-status-review/5" },
+  INSUFFICIENT: { label: "INSUFFICIENT COVERAGE", color: "text-status-fail", bg: "bg-status-fail/5" },
+};
 
 type OverallStatusMeta = { label: string; color: string; bg: string };
 
@@ -43,7 +52,7 @@ const ATTENTION_BORDER: Record<RuleStatus, string> = {
   NOT_CHECKED: "border-l-transparent",
 };
 
-export function CompliancePanel({ report, inspection }: CompliancePanelProps) {
+export function CompliancePanel({ report, inspection, coverage }: CompliancePanelProps) {
   const overall = OVERALL_META[report.overallStatus];
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
@@ -124,6 +133,59 @@ export function CompliancePanel({ report, inspection }: CompliancePanelProps) {
           </div>
         </div>
       </div>
+
+      {/* Image Coverage */}
+      {coverage && (
+        <div className={`px-4 py-3 border-b border-border ${COVERAGE_META[coverage.state].bg}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <Images className="w-4 h-4 text-ink-muted" />
+            <span className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+              Image Coverage
+            </span>
+          </div>
+
+          <div className={`text-sm font-semibold mb-1.5 ${COVERAGE_META[coverage.state].color}`}>
+            {COVERAGE_META[coverage.state].label}
+          </div>
+
+          <p className="text-xs text-ink-muted leading-relaxed mb-2">{coverage.summary}</p>
+
+          {coverage.missingRoles.length > 0 && (
+            <div className="text-xs font-mono text-ink-muted mb-2">
+              <span className="text-ink-muted uppercase tracking-wide">
+                Additional panel coverage recommended:{" "}
+              </span>
+              <span className="text-ink">
+                {coverage.missingRoles.map((r) => r.toUpperCase()).join(" • ")}
+              </span>
+            </div>
+          )}
+
+          {coverage.affectedFields.length > 0 && (
+            <div className="bg-bg border border-border rounded px-3 py-2 space-y-1.5">
+              <div className="text-xs text-ink-muted uppercase tracking-wide">
+                {coverage.affectedFields.length} declaration check
+                {coverage.affectedFields.length !== 1 ? "s" : ""} may be affected by incomplete
+                image coverage
+              </div>
+              <ul className="text-xs text-ink space-y-1">
+                {coverage.affectedFields.map((f) => (
+                  <li key={f.field} className="flex items-baseline justify-between gap-2">
+                    <span>{f.field}</span>
+                    <span className="font-mono text-ink-muted shrink-0">
+                      needs {f.recommendedRoles.map((r) => r.toUpperCase()).join("/")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-ink-muted leading-relaxed pt-1 border-t border-border">
+                Capture additional images for these panels before treating the related REVIEW
+                results as confirmed omissions.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Issues Requiring Attention */}
       <div className="border-b border-border">
@@ -236,7 +298,7 @@ export function CompliancePanel({ report, inspection }: CompliancePanelProps) {
         })}
       </ul>
 
-      <div className="px-4 py-3 border-t-2 border-ink bg-ink/3 flex items-start gap-2.5">
+      <div className="px-4 py-3 border-t-2 border-ink bg-ink/[0.03] flex items-start gap-2.5">
         <AlertTriangle className="w-4 h-4 text-ink shrink-0 mt-0.5" />
         <div>
           <div className="text-xs font-semibold text-ink uppercase tracking-wide">
