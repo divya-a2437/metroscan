@@ -112,9 +112,13 @@ export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
   }
 
   // --- Net Quantity -----------------------------------------------------
+  // The optional "\.?" after the abbreviation group handles labels that
+  // punctuate the abbreviation (e.g. "Net Wt. 52 g") — previously the
+  // period immediately after "Wt" was not accounted for by the separator
+  // section of the pattern, causing the match to fail entirely.
   const netQtyMatch = findFirstMatch(
     lines,
-    /(?:net\s*(?:qty|quantity|wt|weight)?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|grams?|ml|l|lt|ltr|litres?|liters?)\b/i
+    /(?:net\s*(?:qty|quantity|wt|weight)?\.?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|grams?|ml|l|lt|ltr|litres?|liters?)\b/i
   );
   if (netQtyMatch) {
     const value = parseAmount(netQtyMatch.match[1]);
@@ -128,19 +132,22 @@ export function extractDeclaration(chunks: OcrChunk[]): ProductDeclaration {
   }
 
   // --- MRP -----------------------------------------------------------------
-  // The gap between "MRP" and the number is intentionally lazy ({0,15}?
-  // rather than greedy {0,15}): a greedy gap would swallow a "-" sitting
-  // directly before the digits as "junk" (since "-" is neither a digit nor
-  // ₹), silently turning "MRP Rs. -1" into "1". A lazy gap tries the
-  // shortest possible skip first, so when a minus sign is immediately
+  // Keyword alternation now accepts either the abbreviated "MRP"/"M.R.P."
+  // form or the fully spelled-out "Maximum Retail Price" form.
+  //
+  // The gap between the keyword and the number is intentionally lazy
+  // ({0,15}? rather than greedy {0,15}): a greedy gap would swallow a "-"
+  // sitting directly before the digits as "junk" (since "-" is neither a
+  // digit nor ₹), silently turning "MRP Rs. -1" into "1". A lazy gap tries
+  // the shortest possible skip first, so when a minus sign is immediately
   // adjacent to the digits, the capture group gets first claim on it. The
   // "-?" is attached directly to the digit class with nothing in between,
-  // so a hyphen used as a decorative separator (e.g. "MRP - 45.00", with a
-  // space before the number) is never mistaken for a sign — only a hyphen
-  // touching the digits counts.
+  // so a hyphen used as a decorative separator (e.g. "MRP - Rs 45", with a
+  // space/word before the number) is never mistaken for a sign — only a
+  // hyphen touching the digits counts.
   const mrpMatch = findFirstMatch(
     lines,
-    /m\.?r\.?p\.?[^\d₹]{0,15}?(?:rs\.?|inr|₹)?\s*(-?[\d,]+(?:\.\d{1,2})?)/i
+    /(?:m\.?r\.?p\.?|maximum\s*retail\s*price)[^\d₹]{0,15}?(?:rs\.?|inr|₹)?\s*(-?[\d,]+(?:\.\d{1,2})?)/i
   );
   if (mrpMatch) {
     const value = parseAmount(mrpMatch.match[1]);
