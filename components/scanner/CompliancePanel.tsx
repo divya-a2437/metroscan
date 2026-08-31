@@ -11,7 +11,7 @@ import {
   ChevronDown,
   Images,
 } from "lucide-react";
-import type { ComplianceReport, RuleStatus } from "@/lib/rules/types";
+import type { ComplianceReport, RuleResult, RuleStatus } from "@/lib/rules/types";
 import { buildInspectionSummaryText, type InspectionMeta } from "@/lib/inspection";
 import type { CoverageAssessment, CoverageState } from "@/lib/rules/coverageAssessment";
 
@@ -51,6 +51,64 @@ const ATTENTION_BORDER: Record<RuleStatus, string> = {
   REVIEW: "border-l-status-review",
   NOT_CHECKED: "border-l-transparent",
 };
+
+/**
+ * Visual tint for the reasoning-chain box, one per non-PASS status. REVIEW
+ * gets the most prominent tint per the "make reasoning especially
+ * prominent for REVIEW" requirement; NOT_CHECKED stays neutral since it
+ * represents unresolved applicability rather than a problem finding.
+ */
+const REASONING_BOX_STYLE: Partial<Record<RuleStatus, string>> = {
+  FAIL: "border-status-fail/30 bg-status-fail/5",
+  REVIEW: "border-status-review/40 bg-status-review/10",
+  NOT_CHECKED: "border-status-unknown/30 bg-status-unknown/5",
+};
+
+/**
+ * Describes, in conservative generic terms, what class of check this rule
+ * performs — derived only from the existing optional `category` field.
+ * Never claims specifics the rule result doesn't actually establish.
+ */
+function getCheckedDescription(result: RuleResult): string {
+  switch (result.category) {
+    case "DECLARATION":
+      return "Presence of this declaration in the extracted package data";
+    case "VALUE":
+      return "Validity of the extracted value for this declaration";
+    case "READABILITY":
+      return "Relative text-size comparison across extracted evidence on the same image";
+    case "PLACEMENT":
+      return "Evidence location within submitted images";
+    case "FORMAT":
+      return "Format validity of the extracted value";
+    default:
+      return "Extracted package data for this requirement";
+  }
+}
+
+/**
+ * Describes what was actually found, using only detectedValue/evidence
+ * that already exist on the result. Falls back to conservative wording
+ * rather than ever implying something was found when it wasn't.
+ */
+function getFoundDescription(result: RuleResult): string {
+  if (result.detectedValue) {
+    return `Detected: ${result.detectedValue}`;
+  }
+  if (result.evidence) {
+    return `Related evidence: "${result.evidence.rawText}" (${result.evidence.sourceImage}, ${result.evidence.sourceRole.toUpperCase()})`;
+  }
+  return "No matching declaration detected in submitted evidence";
+}
+
+function ReasoningRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] font-mono text-ink-muted uppercase tracking-wide">{label}</div>
+      <div className="text-xs text-ink leading-snug">{value}</div>
+    </div>
+  );
+}
 
 export function CompliancePanel({ report, inspection, coverage }: CompliancePanelProps) {
   const overall = OVERALL_META[report.overallStatus];
@@ -268,7 +326,23 @@ export function CompliancePanel({ report, inspection, coverage }: CompliancePane
                 </summary>
 
                 <div className="px-4 pb-3 space-y-1.5">
-                  <p className="text-xs text-ink-muted leading-relaxed">{result.message}</p>
+                  {result.status === "PASS" ? (
+                    <p className="text-xs text-ink-muted leading-relaxed">{result.message}</p>
+                  ) : (
+                    <div
+                      className={`rounded border px-3 py-2 space-y-2 ${
+                        REASONING_BOX_STYLE[result.status] ?? "border-border bg-bg"
+                      }`}
+                    >
+                      <ReasoningRow label="Requirement" value={result.title} />
+                      <ReasoningRow label="Checked" value={getCheckedDescription(result)} />
+                      <ReasoningRow label="Found" value={getFoundDescription(result)} />
+                      <ReasoningRow
+                        label="Conclusion"
+                        value={`${result.status} — ${result.message}`}
+                      />
+                    </div>
+                  )}
 
                   {hasEvidence && (
                     <div className="bg-bg border border-border rounded px-3 py-2 space-y-1">
