@@ -2,7 +2,7 @@
 
 **AI-assisted, deterministic compliance screening for packaged commodities — built for Smart India Hackathon (Problem Statement 26034).**
 
-> Prototype status: client-side only, no backend, no database, no AI-made legal decisions. Every result requires human verification.
+> Prototype status: Gemini-assisted extraction, no database, and no AI-made legal decisions. Every result requires human verification.
 
 ---
 
@@ -21,18 +21,18 @@ Under India's Legal Metrology (Packaged Commodities) Rules, 2011, pre-packaged g
 MetroScan implements the core of that workflow as a working, demonstrable pipeline:
 
 1. An inspector photographs (or uploads) a package from multiple angles.
-2. On-device OCR reads the visible text.
-3. A deterministic extractor turns raw OCR text into structured declaration fields.
+2. A server-side Gemini API call reads the visible text and extracts declarations.
+3. The Gemini response is normalized into structured declaration fields.
 4. A rule engine evaluates those fields against a prototype set of Legal Metrology declaration requirements.
 5. Results are shown with full evidence — what was detected, where, and why — so a human inspector can verify and act.
 
-Every step before "human verification" runs entirely in the browser. Nothing is sent to a server, stored in a database, or decided by a language model.
+The compliance decision remains deterministic after extraction. Uploaded images are sent to the server route so the Gemini API key remains private.
 
 ## Key Features
 
 - Multi-image upload with role tagging (front / back / side / top / bottom / unspecified)
-- Client-side OCR (Tesseract.js) with live per-image status and confidence
-- Deterministic declaration extraction — no AI/LLM involved
+- Gemini image extraction with live per-image status and model confidence
+- Structured declaration extraction through the Gemini API
 - Deterministic compliance rule engine covering 7 declaration categories
 - Full evidence trail per rule: detected value, raw OCR text, source image, source role, OCR confidence
 - "Issues Requiring Attention" triage view (FAIL/REVIEW rules only)
@@ -44,8 +44,8 @@ Every step before "human verification" runs entirely in the browser. Nothing is 
 
 ```mermaid
 flowchart LR
-    A[Image Upload] --> B[OCR]
-    B --> C[Deterministic Extraction]
+    A[Image Upload] --> B[Gemini Extraction]
+    B --> C[Structured Declaration]
     C --> D[Rule Engine]
     D --> E[Evidence]
     E --> F[Human Verification]
@@ -54,8 +54,8 @@ flowchart LR
 | Stage | What happens | Where |
 |---|---|---|
 | Image Upload | Multiple images accepted, role assigned per image, live previews | `components/scanner/ImageUploader.tsx` |
-| OCR | Tesseract.js runs sequentially through a single worker; per-image status (WAITING → PROCESSING → COMPLETE/ERROR) and confidence | `lib/ocr.ts`, `components/scanner/OCRResults.tsx` |
-| Deterministic Extraction | Regex/keyword matching converts OCR text into a structured `ProductDeclaration`, no AI call | `lib/extraction/` |
+| Gemini Extraction | Server route sends package images to Gemini; per-image status (WAITING → PROCESSING → COMPLETE/ERROR) and model confidence | `app/api/extract/route.ts`, `components/scanner/OCRResults.tsx` |
+| Declaration Normalization | The Gemini response is validated and converted into a structured `ProductDeclaration` | `app/api/extract/route.ts`, `lib/extraction/schema.ts` |
 | Rule Engine | 7 deterministic rules evaluate the declaration, producing PASS/FAIL/REVIEW/NOT_CHECKED | `lib/rules/` |
 | Evidence | Every rule result carries its detected value, raw OCR line, source image, source role, and OCR confidence | `components/scanner/CompliancePanel.tsx` |
 | Human Verification | Inspector reviews the Compliance Assessment and Issues Requiring Attention before acting | — (manual step) |
@@ -65,8 +65,8 @@ flowchart LR
 ```mermaid
 flowchart TD
     subgraph Browser [Runs entirely client-side]
-        A[ImageUploader] --> B[Tesseract Worker]
-        B --> C[Deterministic Extractor]
+        A[ImageUploader] --> B[Gemini API Route]
+        B --> C[Declaration Normalization]
         C --> D[ProductDeclaration]
         D --> E[Rule Engine]
         E --> F[ComplianceReport]
@@ -74,7 +74,7 @@ flowchart TD
     end
 ```
 
-No API routes, no server-side processing, no external service calls other than Tesseract.js's one-time fetch of its own OCR core/language data. See [`docs/architecture.md`](docs/architecture.md) for the full breakdown.
+The API key is used only by the server-side extraction route. See [`docs/architecture.md`](docs/architecture.md) for the full breakdown.
 
 ## Technology Stack
 
@@ -83,11 +83,10 @@ No API routes, no server-side processing, no external service calls other than T
 | Framework | Next.js (App Router) + React + TypeScript |
 | Styling | Tailwind CSS v4 (`@theme` tokens, no `tailwind.config.js`) |
 | Icons | lucide-react |
-| OCR | Tesseract.js (client-side, no Python, no server) |
-| Extraction | Deterministic TypeScript (regex/keyword matching) |
+| Extraction | Google Gemini API (`GEMINI_API_KEY`, server-side route) |
 | Compliance Logic | Deterministic TypeScript rule engine |
 | Persistence | None — no database, no backend, session-only state |
-| AI/LLM | Not used for any compliance decision |
+| AI/LLM | Gemini extracts declarations; deterministic TypeScript makes compliance decisions |
 
 ## Project Structure
 ```text
@@ -178,13 +177,13 @@ To verify a production build:
 npm run build
 ```
 
-No environment variables, API keys, or external service accounts are required — everything runs locally in the browser.
+Copy `.env.example` to `.env.local` and set `GEMINI_API_KEY` before starting the app. Keep this key server-only; do not prefix it with `NEXT_PUBLIC_`.
 
 ## Demo Workflow
 
 1. Open the app and navigate to **Scanner**.
 2. Upload one or more package images and assign roles (front/back/etc.).
-3. Click **Run OCR** — watch per-image status move through WAITING → PROCESSING → COMPLETE, with OCR confidence shown.
+3. Click **Extract with Gemini** — watch per-image status move through WAITING → PROCESSING → COMPLETE, with model confidence shown.
 4. Review the **Extracted Declaration** panel — each field shows its detected value or "Not detected."
 5. Review the **Compliance Assessment** panel:
    - **Inspection Summary** — Inspection ID, timestamp, image count, overall status, PASS/FAIL/REVIEW/NOT CHECKED counts
@@ -197,8 +196,8 @@ A full presentation script is in [`docs/demo-flow.md`](docs/demo-flow.md) if pre
 ## Current Prototype Coverage
 
 - ✅ Multi-image upload with role tagging
-- ✅ Client-side OCR with per-image status and confidence
-- ✅ Deterministic structured declaration extraction
+- ✅ Gemini image extraction with per-image status and model confidence
+- ✅ Structured declaration extraction with evidence attribution
 - ✅ Deterministic rule engine covering 7 declaration categories
 - ✅ Full evidence trail per rule result
 - ✅ Client-generated Inspection ID, timestamp, and image count
@@ -228,7 +227,7 @@ A full presentation script is in [`docs/demo-flow.md`](docs/demo-flow.md) if pre
 
 ## Privacy & Data Handling
 
-MetroScan processes everything **locally in the browser**. Uploaded images are held in memory (as browser `File`/object URLs) for the current session only and are never uploaded to a server or third-party API — OCR runs on-device via Tesseract.js. Closing or refreshing the tab discards all images, OCR results, extracted declarations, and compliance reports. Nothing is logged, stored, or transmitted outside the user's own machine.
+MetroScan holds uploaded images in browser memory for the current session and sends them to the server-side Gemini extraction route when a scan is run. The server uses `GEMINI_API_KEY` to call Gemini and does not persist the images or results. Closing or refreshing the tab discards the client-side inspection state.
 
 ## Legal Disclaimer
 
