@@ -101,38 +101,12 @@ state manager, no server state. This is a deliberate scope decision for a
 ## Extraction Layer (`lib/extraction/`)
 
 - Fully deterministic: regex + keyword line-matching, no AI/LLM call.
-- **Same-line matching first**: every field pattern is tried against a
-  single OCR line before anything else — this is the original, fastest
-  path and is unchanged for any input where label and value already
-  appear together on one line.
-- **Contextual fallback (net quantity, MRP, dates only)**: real-world OCR
-  frequently splits a label and its value across 2–3 adjacent lines, and
-  sometimes reports the value *before* the label. When same-line matching
-  fails, these three fields fall back to a bounded ±3-line window search
-  (`findFirstMatchContextual`), restricted to lines from the same source
-  image, tried in both forward and reversed line order. This lets the
-  same strict regex match either arrangement without loosening what it
-  requires.
-- **Combined "MFD & USE BY" handling**: when both keywords appear together
-  followed by exactly two dates, the first date is assigned to
-  `manufacturing_date` and the second to `use_by`, following the order
-  stated by the label itself — never guessed when only one date is found.
-- **Noise tolerance**: net-quantity and MRP keyword-to-number gaps were
-  widened (net quantity: generic lazy gap; MRP: 15→25 char cap) to bridge
-  garbled OCR fragments between a label and its value, while still
-  requiring the number+unit (or currency) pattern to match — a stray
-  digit with no unit after it is skipped, not captured.
-- Every extracted field still preserves its evidence (raw OCR
-  text — now potentially a joined multi-line window when the contextual
-  fallback was used — source image, source role, OCR confidence). No
-  fabricated evidence or confidence is introduced by the fallback path.
-- **Known limitation**: the product-name heuristic (first qualifying line
-  on the front image) is unchanged by this work and can still pick a
-  marketing-text line over the actual brand name on noisy front labels.
-  Not fixed — out of scope for the extraction-context update.
-- Verified via temporary local scripts (not part of the committed test
-  suite — no test framework exists in this repo) against real noisy OCR
-  text; not verified against live browser OCR output.
+- Designed so a future AI-assisted extractor could be substituted behind
+  the same `(chunks: OcrChunk[]) => ProductDeclaration` signature without
+  touching the rule engine or UI.
+- Every extracted field preserves its evidence (raw OCR line, source
+  image, source role) so results are always traceable back to a specific
+  photo.
 
 ## Rule Engine (`lib/rules/`)
 

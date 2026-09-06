@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ImageUploader, UploadedImage } from "@/components/scanner/ImageUploader";
 import { OCRResults, OcrResultState, OcrStatus } from "@/components/scanner/OCRResults";
 import { DeclarationPanel } from "@/components/scanner/DeclarationPanel";
 import { CompliancePanel } from "@/components/scanner/CompliancePanel";
 import { PipelineStatus, type PipelineStage } from "@/components/scanner/PipelineStatus";
-import { recognizeImage, terminateOcrWorker } from "@/lib/ocr";
-import { extractDeclaration } from "@/lib/extraction/deterministicExtractor";
-import type { OcrChunk, ProductDeclaration } from "@/lib/extraction/schema";
+import type { ProductDeclaration } from "@/lib/extraction/schema";
 import { evaluateCompliance } from "@/lib/rules/evaluateCompliance";
 import type { ComplianceReport } from "@/lib/rules/types";
 import { generateInspectionId, type InspectionMeta } from "@/lib/inspection";
@@ -26,13 +24,6 @@ export default function ScannerPage() {
 
   // Track whether OCR has run at least once, purely for button label text.
   const hasRunOnce = useRef(false);
-
-  // Clean up the shared Tesseract worker when the scanner page unmounts.
-  useEffect(() => {
-    return () => {
-      terminateOcrWorker();
-    };
-  }, []);
 
   const runOcr = async () => {
     if (images.length === 0 || isProcessing) return;
@@ -53,73 +44,72 @@ export default function ScannerPage() {
       return next;
     });
 
-    // Collected locally (not from state) so extraction can run immediately
-    // after the loop without waiting on React state batching.
-    const collectedChunks: OcrChunk[] = [];
+    setCurrentFileName(images.map((image) => image.file.name).join(", "));
+    setOcrResults((prev) => {
+      const next = { ...prev };
+      images.forEach((img) => {
+        next[img.id] = { status: "PROCESSING", text: "", confidence: null };
+      });
+      return next;
+    });
 
-    // Run sequentially through the shared worker — avoids spinning up
-    // multiple Tesseract workers at once.
-    for (const img of images) {
-      setCurrentFileName(img.file.name);
-      setOcrResults((prev) => ({
-        ...prev,
-        [img.id]: { status: "PROCESSING", text: "", confidence: null },
-      }));
+    try {
+      const formData = new FormData();
+      formData.append(
+        "metadata",
+        JSON.stringify(images.map(({ id, file, role }) => ({ id, fileName: file.name, role })))
+      );
+      images.forEach(({ id, file }) => formData.append(id, file));
 
-      try {
-        const { text, confidence, lines } = await recognizeImage(img.file);
-        setOcrResults((prev) => ({
-          ...prev,
-          [img.id]: { status: "COMPLETE", text, confidence },
-        }));
-        collectedChunks.push({
-          imageId: img.id,
-          fileName: img.file.name,
-          role: img.role,
-          text,
-          confidence,
-          lines,
+      const response = await fetch("/api/extract", { method: "POST", body: formData });
+      const payload = (await response.json()) as {
+        declaration?: ProductDeclaration;
+        images?: Array<{ id: string; text: string; confidence: number | null }>;
+        error?: string;
+      };
+      if (!response.ok || !payload.declaration || !payload.images) {
+        throw new Error(payload.error ?? "Gemini extraction failed.");
+      }
+
+      const resultsById = new Map(payload.images.map((result) => [result.id, result]));
+      setOcrResults((prev) => {
+        const next = { ...prev };
+        images.forEach((image) => {
+          const result = resultsById.get(image.id);
+          next[image.id] = {
+            status: "COMPLETE",
+            text: result?.text ?? "",
+            confidence: result?.confidence ?? null,
+          };
         });
-      } catch (err) {
-        setOcrResults((prev) => ({
-          ...prev,
-          [img.id]: {
+        return next;
+      });
+
+      setDeclaration(payload.declaration);
+      setComplianceReport(evaluateCompliance(payload.declaration));
+      setCoverage(assessImageCoverage(images.map((img) => img.role), payload.declaration));
+      setInspectionMeta({
+        inspectionId: generateInspectionId(),
+        timestamp: new Date().toISOString(),
+        imageCount: images.length,
+      });
+    } catch (err) {
+      setOcrResults((prev) => {
+        const next = { ...prev };
+        images.forEach((image) => {
+          next[image.id] = {
             status: "ERROR",
             text: "",
             confidence: null,
-            error: err instanceof Error ? err.message : "OCR failed for this image.",
-          },
-        }));
-        // Images that fail OCR simply contribute no text — extraction still
-        // runs on whatever succeeded.
-      }
+            error: err instanceof Error ? err.message : "Gemini extraction failed.",
+          };
+        });
+        return next;
+      });
+    } finally {
+      setCurrentFileName(null);
+      setIsProcessing(false);
     }
-
-    setCurrentFileName(null);
-    setIsProcessing(false);
-
-    // Structured declaration extraction — deterministic, no AI/LLM call.
-    // Runs even if some images failed OCR or produced no text.
-    const nextDeclaration = extractDeclaration(collectedChunks);
-    setDeclaration(nextDeclaration);
-
-    // Rule engine evaluation — deterministic, no AI/LLM call, and fully
-    // independent from OCR/extraction internals (only depends on the
-    // ProductDeclaration shape).
-    setComplianceReport(evaluateCompliance(nextDeclaration));
-
-    // Evidence-coverage assessment — isolated from the rule engine and
-    // never alters any RuleResult status. Only depends on which image
-    // roles were submitted and which declaration fields were detected.
-    setCoverage(assessImageCoverage(images.map((img) => img.role), nextDeclaration));
-
-    // Client-side-only inspection metadata (ID + timestamp) generated once
-    // per completed run. Not persisted anywhere — no database in this step.
-    setInspectionMeta({
-      inspectionId: generateInspectionId(),
-      timestamp: new Date().toISOString(),
-      imageCount: images.length,
-    });
   };
 
   // Aggregate pipeline status for the sidebar, derived from per-image results.
@@ -148,7 +138,7 @@ export default function ScannerPage() {
     {
       id: "ocr",
       number: "02",
-      label: "OCR",
+      label: "Gemini",
       state:
         pipelineOcrStatus === "ERROR"
           ? "ERROR"
@@ -179,10 +169,10 @@ export default function ScannerPage() {
   ];
 
   const buttonLabel = isProcessing
-    ? "OCR Processing…"
+    ? "Gemini Processing…"
     : hasRunOnce.current
-    ? "Re-run OCR"
-    : "Run OCR";
+    ? "Re-run Gemini Extraction"
+    : "Extract with Gemini";
 
   return (
     <div className="max-w-[1400px] mx-auto px-6 py-8">
@@ -237,7 +227,7 @@ export default function ScannerPage() {
 
             {isProcessing && currentFileName && (
               <div className="mt-3 text-xs font-mono text-status-review border border-status-review/30 bg-status-review/5 rounded px-2 py-1.5">
-                OCR PROCESSING — {currentFileName}
+                GEMINI PROCESSING — {currentFileName}
               </div>
             )}
           </div>

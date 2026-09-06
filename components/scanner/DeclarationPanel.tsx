@@ -50,7 +50,7 @@ export function DeclarationPanel({ declaration }: DeclarationPanelProps) {
         </span>
         <span className="inline-flex items-center gap-1.5 text-[10px] font-mono text-ink border border-border rounded-full px-2 py-0.5">
           <Cpu className="w-3 h-3" />
-          DETERMINISTIC
+          GEMINI
         </span>
       </div>
 
@@ -170,7 +170,7 @@ function FieldCard({
               </span>
             )}
             {confidence !== null && (
-              <span className="shrink-0">{confidence.toFixed(0)}% OCR conf.</span>
+              <span className="shrink-0">{confidence.toFixed(0)}% model conf.</span>
             )}
           </div>
         </>

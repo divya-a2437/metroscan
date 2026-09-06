@@ -57,7 +57,7 @@ export function OCRResults({ images, results }: OCRResultsProps) {
     <div className="border border-border rounded bg-surface">
       <div className="px-4 py-2 border-b border-border flex items-center justify-between">
         <span className="text-xs font-medium text-ink-muted uppercase tracking-wide">
-          OCR Results
+          Gemini Extraction Results
         </span>
       </div>
 
@@ -100,7 +100,7 @@ export function OCRResults({ images, results }: OCRResultsProps) {
                     </span>
 
                     <span className="text-xs font-mono text-ink-muted">
-                      confidence:{" "}
+                      model confidence:{" "}
                       {result.confidence !== null
                         ? `${result.confidence.toFixed(0)}%`
                         : "—"}
