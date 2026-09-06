@@ -193,6 +193,14 @@ Copy `.env.example` to `.env.local` and set `GEMINI_API_KEY` before starting the
 
 A full presentation script is in [`docs/demo-flow.md`](docs/demo-flow.md) if present in your checkout.
 
+## Live Demo
+
+### Production — Deterministic Compliance Engine
+[Open MetroScan](https://metroscan.vercel.app)
+
+### Gemini Demo
+[Open Gemini Demo](https://metroscan-git-gemini-demo-divyas-projects-1382028c.vercel.app/)
+
 ## Current Prototype Coverage
 
 - ✅ Multi-image upload with role tagging
